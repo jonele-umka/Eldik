@@ -1,0 +1,64 @@
+/* Глобальные адаптивные стили */
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Таблицы — горизонтальный скролл на мобильных */
+@media (max-width: 639px) {
+  table {
+    min-width: 480px;
+  }
+
+  /* KPI значения компактнее */
+  .kpi-value {
+    font-size: 15px !important;
+  }
+
+  /* Убираем лишние паддинги в контент-зоне */
+  .content-area {
+    padding: 12px !important;
+  }
+
+  /* Фильтры — вертикально */
+  .filters-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  select,
+  input[type="text"] {
+    width: 100% !important;
+    font-size: 16px !important; /* Предотвращает зум на iOS */
+  }
+}
+
+/* Планшет */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .kpi-grid {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+}
+
+/* Анимация спиннера */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Скролл без скроллбара на мобильных */
+@media (max-width: 639px) {
+  ::-webkit-scrollbar {
+    width: 0;
+    height: 3px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--b1);
+    border-radius: 3px;
+  }
+}

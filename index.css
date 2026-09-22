@@ -1,0 +1,100 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+/* РЎРІРµС‚Р»Р°СЏ С‚РµРјР° вЂ” РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ. */
+:root,
+:root[data-theme="light"] {
+  --bg: #f4f6f9;
+  --s1: #ffffff;
+  --s2: #eef1f5;
+  --s3: #e4e8ee;
+  --b1: #dbe0e7;
+  --b2: #e4e8ee;
+  --accent: #2e6ee0;
+  --green: #1f9d55;
+  --yellow: #b3790f;
+  --red: #d9362b;
+  --purple: #8b5cf6;
+  --text: #16202b;
+  --muted: #5b6673;
+  --muted2: #7c8894;
+  color-scheme: light;
+}
+
+/* РўС‘РјРЅР°СЏ С‚РµРјР° вЂ” РїСЂРµР¶РЅРёР№ РІРёРґ РїСЂРёР»РѕР¶РµРЅРёСЏ, РІРєР»СЋС‡Р°РµС‚СЃСЏ РїРµСЂРµРєР»СЋС‡Р°С‚РµР»РµРј. */
+:root[data-theme="dark"] {
+  --bg: #0d1117;
+  --s1: #161b22;
+  --s2: #1c2333;
+  --s3: #21262d;
+  --b1: #30363d;
+  --b2: #21262d;
+  --accent: #58a6ff;
+  --green: #3fb950;
+  --yellow: #d29922;
+  --red: #f85149;
+  --purple: #bc8cff;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --muted2: #6e7681;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Inter", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--b1);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted2);
+}
+
+/* РњРѕРґР°Р»РєР°: РёСЃРїРѕР»СЊР·СѓРµРј dvh (РґРёРЅР°РјРёС‡РµСЃРєР°СЏ РІС‹СЃРѕС‚Р° РІСЊСЋРїРѕСЂС‚Р°), С‡С‚РѕР±С‹ РЅР° РјРѕР±РёР»СЊРЅС‹С…
+   РїСЂРё РѕС‚РєСЂС‹С‚РѕР№ РєР»Р°РІРёР°С‚СѓСЂРµ РєРЅРѕРїРєРё РІ С„СѓС‚РµСЂРµ (РћС‚РјРµРЅР°/РЎРѕС…СЂР°РЅРёС‚СЊ) РѕСЃС‚Р°РІР°Р»РёСЃСЊ
+   РІРёРґРёРјС‹РјРё, Р° РЅРµ СѓРµР·Р¶Р°Р»Рё Р·Р° РїСЂРµРґРµР»С‹ СЌРєСЂР°РЅР°. РЎС‚Р°СЂС‹Рµ Р±СЂР°СѓР·РµСЂС‹ Р±РµР· РїРѕРґРґРµСЂР¶РєРё
+   dvh РёСЃРїРѕР»СЊР·СѓСЋС‚ vh РєР°Рє Р·Р°РїР°СЃРЅРѕР№ РІР°СЂРёР°РЅС‚ (РїСЂР°РІРёР»Рѕ РЅРёР¶Рµ РїРµСЂРµРѕРїСЂРµРґРµР»СЏРµС‚ РµРіРѕ). */
+.modal-panel {
+  max-height: 90vh;
+  max-height: 90dvh;
+}
+
+/* РџРѕР»РЅРѕСЌРєСЂР°РЅРЅР°СЏ Р±Р»РѕРєРёСЂРѕРІРєР° РЅР° РІСЂРµРјСЏ РїРµСЂРІРѕР№ РїРѕР»РЅРѕР№ Р·Р°РіСЂСѓР·РєРё РґР°РЅРЅС‹С…. */
+.app-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
