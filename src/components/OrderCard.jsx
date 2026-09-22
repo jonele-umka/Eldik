@@ -309,18 +309,6 @@ export function OrderCard({ group, prices, onSelectClient, onOpen }) {
                   }}
                 >
                   {r.paidQuantity ?? r.quantity}
-
-                  {Number(r.giftQty || 0) > 0 && (
-                    <span
-                      style={{
-                        color: "var(--green)",
-                        fontSize: 11,
-                        marginLeft: 4,
-                      }}
-                    >
-                      +{r.giftQty}🎁
-                    </span>
-                  )}
                 </td>
 
                 <td

@@ -25,7 +25,7 @@ import {
   updatePayment,
   updateStatus,
 } from "../services/api.js";
-import { calcPromo, priceOf, usePromo } from "../utils/promo.js";
+import { priceOf } from "../utils/promo.js";
 import { fmtM } from "../utils/index.js";
 import { printInvoice } from "../utils/invoice.js";
 
@@ -34,7 +34,6 @@ const norm = (s) => String(s || "").trim().toLowerCase();
 export default function OrderDetailModal({ group, onClose }) {
   const { data, mutate, refresh } = useData();
   const { toast, confirm } = useUI();
-  const { promoEnabled } = usePromo();
 
   const clients = Array.isArray(data.clients) ? data.clients : [];
   const prices = Array.isArray(data.prices) ? data.prices : [];
@@ -154,13 +153,12 @@ export default function OrderDetailModal({ group, onClose }) {
       setBusy(true);
       for (const row of rows) {
         const qty = Number(row.quantity) || 0;
-        const promo = calcPromo(qty, promoEnabled);
         const item = {
           product: row.product,
           quantity: qty,
-          paidQuantity: promo.paidQty,
-          giftQty: promo.giftQty,
-          finalQuantity: promo.finalQty,
+          paidQuantity: qty,
+          giftQty: 0,
+          finalQuantity: qty,
           comment: row.comment || "",
         };
         const payload = {
@@ -363,7 +361,6 @@ export default function OrderDetailModal({ group, onClose }) {
                 order: { ...group, market, client, deliveryDate, orderDate, status },
                 rows,
                 priceOfRow: (r) => priceFor(r.product),
-                promoOf: (q) => calcPromo(q, promoEnabled),
               })
             }
           >
@@ -477,7 +474,6 @@ export default function OrderDetailModal({ group, onClose }) {
 
       {rows.map((r, i) => {
         const qty = Number(r.quantity) || 0;
-        const promo = calcPromo(qty, promoEnabled);
         const price = priceFor(r.product);
         return (
           <div
@@ -496,11 +492,6 @@ export default function OrderDetailModal({ group, onClose }) {
                 <div style={{ fontSize: 13.5, fontWeight: 600 }}>{r.product}</div>
                 <div style={{ fontSize: 12, color: "var(--muted)" }}>
                   {price} сом / шт
-                  {promo.giftQty > 0 && (
-                    <span style={{ color: "var(--green)", marginLeft: 8 }}>
-                      🎁 +{promo.giftQty}
-                    </span>
-                  )}
                 </div>
               </div>
 

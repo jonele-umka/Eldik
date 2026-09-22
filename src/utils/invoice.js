@@ -2,21 +2,15 @@
 // Пользователь может сохранить в PDF или отправить на принтер.
 import { fmt } from "./index.js";
 
-export function printInvoice({ order, rows, priceOfRow, promoOf }) {
+export function printInvoice({ order, rows, priceOfRow }) {
   const itemRows = rows
     .map((r, i) => {
       const qty = Number(r.quantity) || 0;
       const price = priceOfRow(r);
-      const promo = promoOf(qty);
       return `<tr>
         <td style="text-align:center;padding:6px 4px">${i + 1}</td>
         <td style="padding:6px 4px">${r.product}</td>
         <td style="text-align:center;padding:6px 4px">${qty}</td>
-        <td style="text-align:center;color:#059669;padding:6px 4px">${
-          promo.giftQty > 0
-            ? `+${promo.giftQty}<small style="display:block;font-size:9px;color:#666">итог: ${promo.finalQty}</small>`
-            : "—"
-        }</td>
         <td style="text-align:right;padding:6px 4px">${fmt(price)}</td>
         <td style="text-align:right;font-weight:600;padding:6px 4px">${fmt(qty * price)}</td>
       </tr>`;
@@ -28,10 +22,6 @@ export function printInvoice({ order, rows, priceOfRow, promoOf }) {
     0,
   );
   const boxes = rows.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
-  const gifts = rows.reduce(
-    (s, r) => s + promoOf(Number(r.quantity) || 0).giftQty,
-    0,
-  );
   const num = String(order.oid || "").slice(-8);
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Накладная ${num}</title>
@@ -55,17 +45,15 @@ export function printInvoice({ order, rows, priceOfRow, promoOf }) {
   <table width="100%" style="border-collapse:collapse;margin-bottom:20px;font-size:12px">
     <thead><tr style="border-bottom:2px solid #e2e8f0;color:#64748b;text-transform:uppercase;font-size:10px">
       <th style="padding:8px 4px;width:5%">#</th>
-      <th style="padding:8px 4px;text-align:left;width:40%">Товар</th>
-      <th style="padding:8px 4px;width:10%">Кол-во</th>
-      <th style="padding:8px 4px;width:15%">Подарок</th>
-      <th style="padding:8px 4px;text-align:right;width:15%">Цена</th>
-      <th style="padding:8px 4px;text-align:right;width:15%">Сумма</th>
+      <th style="padding:8px 4px;text-align:left;width:45%">Товар</th>
+      <th style="padding:8px 4px;width:15%">Кол-во</th>
+      <th style="padding:8px 4px;text-align:right;width:17%">Цена</th>
+      <th style="padding:8px 4px;text-align:right;width:18%">Сумма</th>
     </tr></thead>
     <tbody>${itemRows}
       <tr style="background:#f8fafc;font-weight:bold;border-top:2px solid #e2e8f0">
         <td colspan="2" style="padding:10px 8px">ИТОГО</td>
         <td style="text-align:center">${boxes}</td>
-        <td style="text-align:center;color:#059669">${gifts > 0 ? "+" + gifts : "—"}</td>
         <td></td><td style="text-align:right">${fmt(total)}</td>
       </tr>
     </tbody></table>

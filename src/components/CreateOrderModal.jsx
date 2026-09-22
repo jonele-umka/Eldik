@@ -15,13 +15,12 @@ import { useData, AFFECTS } from "../store/DataContext.jsx";
 import { useUI } from "../store/UIContext.jsx";
 import { saveOrder } from "../services/api.js";
 import { ProductThumb } from "./UI.jsx";
-import { calcPromo, priceOf, usePromo } from "../utils/promo.js";
+import { priceOf } from "../utils/promo.js";
 import { fmtM } from "../utils/index.js";
 
 export default function CreateOrderModal({ open, onClose, defaultClient }) {
   const { data, mutate } = useData();
   const { toast } = useUI();
-  const { promoEnabled, togglePromo } = usePromo();
 
   const clients = Array.isArray(data.clients) ? data.clients : [];
   const prices = Array.isArray(data.prices) ? data.prices : [];
@@ -81,13 +80,13 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
     const orderItems = Object.entries(items)
       .filter(([, it]) => Number(it?.qty || 0) > 0)
       .map(([product, it]) => {
-        const promo = calcPromo(it.qty, promoEnabled);
+        const qty = Number(it.qty) || 0;
         return {
           product,
-          quantity: promo.paidQty,
-          paidQuantity: promo.paidQty,
-          giftQty: promo.giftQty,
-          finalQuantity: promo.finalQty,
+          quantity: qty,
+          paidQuantity: qty,
+          giftQty: 0,
+          finalQuantity: qty,
           comment: it.comment || "",
         };
       });
@@ -166,23 +165,6 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
         </Field>
       </div>
 
-      <div
-        onClick={togglePromo}
-        style={{
-          cursor: "pointer",
-          borderRadius: 10,
-          padding: "10px 14px",
-          marginBottom: 12,
-          fontSize: 13,
-          fontWeight: 600,
-          background: promoEnabled ? "rgba(63,185,80,.15)" : "var(--s2)",
-          border: `1px solid ${promoEnabled ? "var(--green)" : "var(--b1)"}`,
-          color: promoEnabled ? "var(--green)" : "var(--muted)",
-        }}
-      >
-        {promoEnabled ? "🎁 Акция включена: +1 за каждые 10" : "🎁 Акция выключена"}
-      </div>
-
       <TextInput
         placeholder="🔍 Поиск товара..."
         value={search}
@@ -200,7 +182,6 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
         {shownProducts.map((p) => {
           const it = items[p.product] || { qty: 0, comment: "" };
           const qty = Number(it.qty || 0);
-          const promo = calcPromo(qty, promoEnabled);
           const price = priceOf(p, market);
 
           return (
@@ -220,11 +201,6 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
                   <div style={{ fontSize: 13.5, fontWeight: 600 }}>{p.product}</div>
                   <div style={{ fontSize: 12, color: "var(--muted)" }}>
                     {price} сом / шт
-                    {promo.giftQty > 0 && (
-                      <span style={{ color: "var(--green)", marginLeft: 8 }}>
-                        🎁 +{promo.giftQty} (выдача {promo.finalQty})
-                      </span>
-                    )}
                   </div>
                 </div>
 

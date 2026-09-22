@@ -11,14 +11,12 @@ import {
   saveRawMaterial,
   updateRawMaterial,
 } from "../services/api.js";
-import { usePromo } from "../utils/promo.js";
 import { useTheme } from "../utils/theme.js";
 import { fmtM } from "../utils/index.js";
 
 export default function SettingsPage({ user, onLogout }) {
   const { data, mutate, refreshAll } = useData();
   const { toast, confirm } = useUI();
-  const { promoEnabled, togglePromo } = usePromo();
   const { theme, toggleTheme } = useTheme();
 
   const raws = Array.isArray(data.rawMaterials) ? data.rawMaterials : [];
@@ -89,17 +87,6 @@ export default function SettingsPage({ user, onLogout }) {
         </p>
         <Btn variant={theme === "dark" ? "purple" : "ghost"} onClick={toggleTheme}>
           {theme === "dark" ? "🌙 Тёмная — нажмите для светлой" : "☀️ Светлая — нажмите для тёмной"}
-        </Btn>
-      </div>
-
-      <div style={{ ...S.card, maxWidth: 560, padding: "22px 24px" }}>
-        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>Акция</div>
-        <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>
-          При включённой акции к каждым 10 коробкам добавляется 1 в подарок —
-          подарок не оплачивается, но попадает в производство и развозку.
-        </p>
-        <Btn variant={promoEnabled ? "green" : "ghost"} onClick={togglePromo}>
-          {promoEnabled ? "🎁 Акция включена: +1 за каждые 10" : "🎁 Акция выключена"}
         </Btn>
       </div>
 
