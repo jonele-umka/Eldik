@@ -376,6 +376,7 @@ export function Modal({
               borderTop: "1px solid var(--b1)",
               display: "flex",
               gap: 10,
+              flexWrap: "wrap",
               justifyContent: "flex-end",
               flexShrink: 0,
             }}

@@ -11,7 +11,7 @@ import {
 } from "./pages/MiscPages";
 import ClientDetailPage from "./pages/ClientDetailPage.jsx";
 import AnalyticsPage from "./pages/AnalyticsPage.jsx";
-import { ProductionPage, DeliveryPage } from "./pages/ProductionPage.jsx";
+import { ProductionDeliveryPage } from "./pages/ProductionPage.jsx";
 import CatalogPage from "./pages/CatalogPage.jsx";
 import DashboardPage from "./pages/DashboardPage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
@@ -47,10 +47,9 @@ const PAGES = [
   { key: "expenses", icon: "💸", label: "Расходы" },
   { key: "clients", icon: "👥", label: "Клиенты" },
   { key: "analytics", icon: "📊", label: "Аналитика" },
-  { key: "production", icon: "🏭", label: "Производство" },
+  { key: "production", icon: "🏭", label: "Производство/Развозка" },
   { key: "catalog", icon: "🗂️", label: "Каталог" },
   { key: "notes", icon: "📝", label: "Заметки" },
-  { key: "delivery", icon: "🚚", label: "Развозка" },
   { key: "settings", icon: "⚙️", label: "Настройки" },
 ];
 
@@ -575,21 +574,12 @@ function Shell() {
         );
       case "production":
         return (
-          <ProductionPage
+          <ProductionDeliveryPage
             data={data.production}
             prices={data.prices}
             search={search}
             isMobile={isMobile}
             isTablet={isTablet}
-          />
-        );
-      case "delivery":
-        return (
-          <DeliveryPage
-            data={data.deliveryDetail}
-            prices={data.prices}
-            search={search}
-            isMobile={isMobile}
           />
         );
       case "catalog":

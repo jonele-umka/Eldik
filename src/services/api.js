@@ -45,6 +45,8 @@ export const deleteOrder = (orderId) => apiPost({ action: "deleteOrder", orderId
 export const deleteOrderRow = (rowId) => apiPost({ action: "deleteOrderRow", rowId });
 export const updateStatus = (orderId, status) =>
   apiPost({ action: "updateStatus", orderId, status });
+export const setStockOut = (date, product, qty) =>
+  apiPost({ action: "setStockOut", date, product, qty });
 
 /* ─── ПЛАТЕЖИ И ВОЗВРАТЫ ──────────────────────────────────────────────── */
 export const savePayment = (d) => apiPost({ action: "savePayment", ...d });

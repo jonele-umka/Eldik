@@ -33,6 +33,7 @@ export const ENDPOINTS = {
   months: "analyticsMonths",
   production: "production",
   deliveryDetail: "deliveryDetail",
+  stockOuts: "stockOuts",
   prices: "prices",
   suppliers: "suppliers",
   suppliersDebt: "suppliersDebt",
@@ -198,4 +199,5 @@ export const AFFECTS = {
   opening: ["openingBalances", "debtors", "suppliersDebt"],
   raw: ["rawMaterials"],
   note: ["notes"],
+  stockOut: ["stockOuts"],
 };
