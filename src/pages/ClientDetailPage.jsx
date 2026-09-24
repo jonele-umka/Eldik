@@ -1,5 +1,11 @@
 import { useMemo, useState } from "react";
-import { fmtM, buildOrderGroups, parseDate } from "../utils/index.js";
+import {
+  fmtM,
+  buildOrderGroups,
+  parseDate,
+  distributeClientCredits,
+  sameClient,
+} from "../utils/index.js";
 import { dateTimeKey, fmtDateTime } from "../utils/ledger.js";
 import { KPI, TableWrap, TR, TD, TH, MoneyCell } from "../components/UI.jsx";
 import { OrderCard } from "../components/OrderCard.jsx";
@@ -150,6 +156,20 @@ function LedgerEntry({ entry, onEdit, onDelete }) {
           }}
         >
           Долг, существовавший до начала учёта в приложении
+          {entry.openingRemaining !== undefined && (
+            <span
+              style={{
+                marginLeft: 8,
+                fontWeight: 700,
+                color:
+                  entry.openingRemaining > 0 ? "#d29922" : "var(--green)",
+              }}
+            >
+              {entry.openingRemaining > 0
+                ? `· осталось погасить: ${fmtM(entry.openingRemaining)}`
+                : "· погашен"}
+            </span>
+          )}
         </div>
       )}
 
@@ -328,8 +348,8 @@ export default function ClientDetailPage({
   // =========================
 
   const clientOrders = useMemo(
-    () => arr(orders).filter((o) => norm(o.client) === clientKey),
-    [orders, clientKey],
+    () => arr(orders).filter((o) => sameClient(o.client, client)),
+    [orders, client],
   );
 
   // =========================
@@ -337,8 +357,8 @@ export default function ClientDetailPage({
   // =========================
 
   const allClientPayments = useMemo(
-    () => arr(payments).filter((p) => norm(p.client) === clientKey),
-    [payments, clientKey],
+    () => arr(payments).filter((p) => sameClient(p.client, client)),
+    [payments, client],
   );
 
   // =========================
@@ -369,8 +389,8 @@ export default function ClientDetailPage({
   // =========================
 
   const clientReturns = useMemo(
-    () => arr(returns).filter((r) => norm(r.client) === clientKey),
-    [returns, clientKey],
+    () => arr(returns).filter((r) => sameClient(r.client, client)),
+    [returns, client],
   );
 
   // =========================
@@ -378,8 +398,8 @@ export default function ClientDetailPage({
   // =========================
 
   const clientOffsets = useMemo(
-    () => arr(offsets).filter((o) => norm(o.client) === clientKey),
-    [offsets, clientKey],
+    () => arr(offsets).filter((o) => sameClient(o.client, client)),
+    [offsets, client],
   );
 
   // =========================
@@ -389,64 +409,62 @@ export default function ClientDetailPage({
   const clientOpening = useMemo(
     () =>
       arr(openingBalances).filter(
-        (o) => o.type === "client" && norm(o.name) === clientKey,
+        (o) => o.type === "client" && sameClient(o.name, client),
       ),
-    [openingBalances, clientKey],
+    [openingBalances, client],
   );
 
   // =========================
   // ГРУППЫ ЗАКАЗОВ
   // =========================
 
-  const groups = useMemo(() => {
-    // Получаем обычные заказы
+  // Единая "водопадная" разноска: непривязанные оплаты и взаимозачёты
+  // гасят СНАЧАЛА начальный остаток (самый старый долг), а уже потом —
+  // заказы от старого к новому. Используем ту же функцию, что и
+  // страница "Заказы", чтобы статус оплаты конкретного заказа совпадал
+  // везде, даже если оплата была внесена через карточку клиента/
+  // должника без привязки к заказу.
+  const { groups, openingRemaining } = useMemo(() => {
     const baseGroups = buildOrderGroups(clientOrders);
 
-    // Для распределения зачётов сортируем от старого заказа к новому.
-    // Старый долг закрывается первым.
-    const sortedOldestFirst = [...baseGroups].sort(
-      (a, b) => parseDate(a.orderDate) - parseDate(b.orderDate),
-    );
+    // На карточке клиента все входящие записи (заказы, оплаты, зачёты,
+    // нач. остаток) уже отобраны через sameClient — они точно относятся
+    // к этому клиенту, даже если где-то сохранены под другим вариантом
+    // имени (напр. "Элдияр" вместо "Элдияр ДФ"). Но distributeClientCredits
+    // группирует по точному имени (без учёта алиасов), поэтому
+    // "выравниваем" имя во всех записях на каноничное — иначе, например,
+    // нач. остаток, сохранённый под другим вариантом имени, не свяжется
+    // с заказами клиента внутри самой функции.
+    const normGroups = baseGroups.map((g) => ({ ...g, client }));
+    const normPayments = directPayments.map((p) => ({ ...p, client }));
+    const normOffsets = clientOffsets.map((o) => ({ ...o, client }));
+    const normOpening = clientOpening.map((o) => ({ ...o, name: client }));
 
-    // Общая сумма взаимозачётов клиента
-    let remainingOffset = clientOffsets.reduce(
-      (sum, offset) => sum + Number(offset.amount || 0),
-      0,
-    );
-
-    // Распределяем взаимозачёт по заказам
-    const withOffsets = sortedOldestFirst.map((group) => {
-      const totalSum = Number(group.totalSum || 0);
-      const returnedAmount = Number(group.returnedAmount || 0);
-      const paidAmount = Number(group.paidAmount || 0);
-
-      // Реальная сумма, которую нужно погасить
-      const effectiveTotal = Math.max(0, totalSum - returnedAmount);
-
-      // Сколько осталось после обычной оплаты
-      const remainingDebt = Math.max(0, effectiveTotal - paidAmount);
-
-      // Из зачёта берём только столько,
-      // сколько нужно этому заказу
-      const offsetAmount = Math.min(remainingOffset, remainingDebt);
-
-      remainingOffset -= offsetAmount;
-
-      return {
-        ...group,
-        offsetAmount,
-
-        // Это общая сумма погашения:
-        // обычная оплата + взаимозачёт
-        totalPaidAmount: paidAmount + offsetAmount,
-      };
-    });
+    const { groups: withCredits, openingRemainingByClient } =
+      distributeClientCredits(
+        normGroups,
+        normPayments,
+        normOffsets,
+        normOpening,
+      );
 
     // Для отображения новые заказы сверху
-    return withOffsets.sort(
+    const sorted = [...withCredits].sort(
       (a, b) => parseDate(b.orderDate) - parseDate(a.orderDate),
     );
-  }, [clientOrders, clientOffsets]);
+
+    return {
+      groups: sorted,
+      openingRemaining: openingRemainingByClient[clientKey] || 0,
+    };
+  }, [
+    clientOrders,
+    directPayments,
+    clientOffsets,
+    clientOpening,
+    client,
+    clientKey,
+  ]);
   // =========================
   // ИТОГИ
   // =========================
@@ -498,12 +516,17 @@ export default function ClientDetailPage({
       })),
 
       // Начальный остаток
-      ...clientOpening.map((o) => ({
+      ...clientOpening.map((o, idx) => ({
         kind: "opening",
         date: o.date,
         amount: Number(o.amount || 0),
         id: o.id,
         comment: o.comment,
+        // Показываем остаток общей суммы нач. остатка только на последней
+        // по счёту записи, чтобы не дублировать одно и то же число,
+        // если у клиента несколько записей нач. остатка.
+        openingRemaining:
+          idx === clientOpening.length - 1 ? openingRemaining : undefined,
       })),
 
       // Прямые оплаты
@@ -554,7 +577,14 @@ export default function ClientDetailPage({
         // 2. Все остальные элементы (payment, offset) сортируем от новых к старым
         return dateTimeKey(b.date) - dateTimeKey(a.date);
       });
-  }, [groups, clientOpening, directPayments, clientOffsets, clientReturns]);
+  }, [
+    groups,
+    clientOpening,
+    openingRemaining,
+    directPayments,
+    clientOffsets,
+    clientReturns,
+  ]);
   const kpiGrid = isMobile ? S.kpiGridMobile : S.kpiGrid;
 
   return (
@@ -590,6 +620,10 @@ export default function ClientDetailPage({
       ========================= */}
 
       <div style={kpiGrid}>
+        {clientOpening.length > 0 && (
+          <KPI label="Нач. остаток" value={fmtM(openingSum)} color="#d29922" />
+        )}
+
         <KPI label="Заказано" value={fmtM(totalSum)} color="var(--accent)" />
 
         <KPI label="Оплачено нам" value={fmtM(paidSum)} color="var(--green)" />
@@ -741,6 +775,7 @@ export default function ClientDetailPage({
               <OrderCard
                 key={g.oid}
                 group={g}
+                prices={store.prices}
                 isMobile={isMobile}
                 onOpen={setOpenOrder}
               />

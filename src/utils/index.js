@@ -13,6 +13,30 @@ export function paginate(arr, page) {
   return arr.slice((page - 1) * PAGE, page * PAGE);
 }
 
+// Сопоставляет "сырое" и "каноничное" имя клиента/поставщика.
+// Одного и того же человека иногда сохраняют под разными вариантами
+// имени в разных местах (например, заказ на "Элдияр ДФ", а начальный
+// остаток когда-то внесли просто как "Элдияр") — бэкенд в getDebtors()
+// уже умеет сводить такие варианты в одну запись через резолвер имён
+// по листу "Клиенты"/"Поставщики". Здесь — тот же принцип на фронте,
+// без доступа к листу: считаем совпадением точное имя, а также случай,
+// когда один вариант — префикс другого до пробела.
+export function sameClient(a, b) {
+  const na = String(a || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  const nb = String(b || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  if (na.startsWith(nb + " ")) return true;
+  if (nb.startsWith(na + " ")) return true;
+  return false;
+}
+
 export function filterSearch(arr, keys, q) {
   if (!q) return arr;
   const lq = q.toLowerCase();
@@ -95,13 +119,30 @@ export const parseDate = (s) => {
 // Нужно, чтобы статус оплаты заказа совпадал на всех страницах,
 // даже если оплата была внесена без привязки к конкретному заказу
 // (кнопка "Внести оплату" на карточке клиента/должника).
-export function distributeClientCredits(groups, payments, offsets) {
+//
+// Приоритет гашения: СНАЧАЛА заказы (от старого к новому), и только
+// то, что осталось сверх — уходит в начальный остаток. Так и работает
+// на практике: клиент платит за конкретную (обычно недавнюю) поставку,
+// эта поставка/заказ закрывается полностью, а излишек уменьшает старый
+// долг. Если оплата ровно по сумме заказа — весь заказ просто оплачен,
+// нач. остаток не трогается.
+//
+// Возвращает { groups, openingRemainingByClient } — groups мутируется
+// на месте (как и раньше), поэтому старые вызовы, игнорирующие
+// возвращаемое значение, продолжают работать без изменений.
+export function distributeClientCredits(
+  groups,
+  payments,
+  offsets,
+  openingBalances,
+) {
   const norm = (s) =>
     String(s || "")
       .trim()
       .toLowerCase();
   const arrP = Array.isArray(payments) ? payments : [];
   const arrO = Array.isArray(offsets) ? offsets : [];
+  const arrOB = Array.isArray(openingBalances) ? openingBalances : [];
 
   const unassignedPayByClient = {};
   arrP.forEach((p) => {
@@ -120,6 +161,14 @@ export function distributeClientCredits(groups, payments, offsets) {
     offsetByClient[key] = (offsetByClient[key] || 0) + Number(o.amount || 0);
   });
 
+  const openingByClient = {};
+  arrOB.forEach((o) => {
+    if (o.type && o.type !== "client") return;
+    const key = norm(o.name || o.client);
+    if (!key) return;
+    openingByClient[key] = (openingByClient[key] || 0) + Number(o.amount || 0);
+  });
+
   const byClient = {};
   groups.forEach((g) => {
     const key = norm(g.client);
@@ -127,12 +176,23 @@ export function distributeClientCredits(groups, payments, offsets) {
     byClient[key].push(g);
   });
 
-  Object.keys(byClient).forEach((key) => {
+  const openingRemainingByClient = {};
+
+  // Клиенты могут иметь начальный остаток, но не иметь заказов в этом
+  // наборе groups — всё равно нужно посчитать, сколько из остатка
+  // уже погашено оплатами/взаимозачётами.
+  const allClientKeys = new Set([
+    ...Object.keys(byClient),
+    ...Object.keys(openingByClient),
+  ]);
+
+  allClientKeys.forEach((key) => {
     let remainingCredit =
       (unassignedPayByClient[key] || 0) + (offsetByClient[key] || 0);
     let remainingOffset = offsetByClient[key] || 0;
 
-    const clientGroups = [...byClient[key]].sort(
+    // 1) Сначала гасим заказы, от старого к новому.
+    const clientGroups = [...(byClient[key] || [])].sort(
       (a, b) => parseDate(a.orderDate) - parseDate(b.orderDate),
     );
 
@@ -152,7 +212,13 @@ export function distributeClientCredits(groups, payments, offsets) {
       g.offsetAmount = (g.offsetAmount || 0) + offsetApplied;
       g.totalPaidAmount = alreadyPaid + applied;
     });
+
+    // 2) То, что осталось сверх всех заказов — уменьшает нач. остаток.
+    const openingDebt = openingByClient[key] || 0;
+    const appliedToOpening = Math.min(remainingCredit, openingDebt);
+    remainingCredit -= appliedToOpening;
+    openingRemainingByClient[key] = Math.max(0, openingDebt - appliedToOpening);
   });
 
-  return groups;
+  return { groups, openingRemainingByClient };
 }

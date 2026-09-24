@@ -14,7 +14,7 @@ export function Btn({
 }) {
   const palette = {
     primary: ["var(--accent)", "#fff", "var(--accent)"],
-    green: ["var(--green)", "#0d1117", "var(--green)"],
+    green: ["var(--green)", "#fff", "var(--green)"],
     danger: ["rgba(248,81,73,.15)", "var(--red)", "rgba(248,81,73,.5)"],
     warn: ["rgba(210,153,34,.15)", "var(--yellow)", "rgba(210,153,34,.5)"],
     purple: ["rgba(163,113,247,.15)", "#a371f7", "rgba(163,113,247,.5)"],

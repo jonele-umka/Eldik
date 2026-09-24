@@ -110,3 +110,4 @@ export const deletePrice = (product) => apiPost({ action: "deletePrice", product
 
 /* ─── ПРОЧЕЕ ──────────────────────────────────────────────────────────── */
 export const forceUpdateAll = () => apiPost({ action: "forceUpdateAll" });
+export const normalizeNames = () => apiPost({ action: "normalizeNames" });

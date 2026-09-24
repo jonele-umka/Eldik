@@ -1,8 +1,15 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { fmtM } from "../utils/index.js";
 import { Badge, MoneyCell, ProductThumb } from "./UI.jsx";
+import { useData, AFFECTS } from "../store/DataContext.jsx";
+import { useUI } from "../store/UIContext.jsx";
+import { updateStatus } from "../services/api.js";
 
-export function OrderCard({ group, prices, onSelectClient, onOpen }) {
+export function OrderCard({ group, prices, stockOutMap, onSelectClient, onOpen }) {
+  const { mutate } = useData();
+  const { toast } = useUI();
+  const [statusBusy, setStatusBusy] = useState(false);
+
   const imageByProduct = useMemo(() => {
     const m = {};
     (prices || []).forEach((p) => {
@@ -10,6 +17,20 @@ export function OrderCard({ group, prices, onSelectClient, onOpen }) {
     });
     return m;
   }, [prices]);
+
+  const handleToggleStatus = async (e) => {
+    e.stopPropagation();
+    const next = group.status === "Доставлен" ? "Новый" : "Доставлен";
+    try {
+      setStatusBusy(true);
+      await mutate(() => updateStatus(group.oid, next), AFFECTS.order);
+      toast(`Статус: ${next}`, "ok");
+    } catch (err) {
+      toast(err.message, "err");
+    } finally {
+      setStatusBusy(false);
+    }
+  };
 
   const {
     client,
@@ -27,10 +48,31 @@ export function OrderCard({ group, prices, onSelectClient, onOpen }) {
     totalPaidAmount,
   } = group;
 
-  // Сумма заказа после возвратов
+  const hasOldBox = (rows || []).some((r) => r.oldBox);
+
+  // Сколько не хватает по каждой строке (отмечено на странице
+  // производства/развозки на дату доставки этого заказа) — тот же
+  // источник данных, что и там, просто показываем ещё и тут.
+  const missingFor = (r) => {
+    if (!deliveryDate || !r.product || !stockOutMap) return 0;
+    const qty = Number(r.paidQuantity ?? r.quantity ?? 0);
+    const missing = Number(stockOutMap.get(`${deliveryDate}::${r.product}`) || 0);
+    return Math.min(qty, missing);
+  };
+
+  const hasStockOut = (rows || []).some((r) => missingFor(r) > 0);
+
+  // На сколько сумма заказа уменьшается из-за нехватки товара —
+  // недостающие штуки не должны входить ни в итог, ни в долг клиента.
+  const stockOutDeduction = (rows || []).reduce(
+    (s, r) => s + missingFor(r) * Number(r.price || 0),
+    0,
+  );
+
+  // Сумма заказа после возвратов и недостачи
   const effectiveTotal = Math.max(
     0,
-    Number(totalSum || 0) - Number(returnedAmount || 0),
+    Number(totalSum || 0) - Number(returnedAmount || 0) - stockOutDeduction,
   );
 
   // Обычная оплата
@@ -59,6 +101,7 @@ export function OrderCard({ group, prices, onSelectClient, onOpen }) {
   const isPartiallyPaid = actualPaid > 0 && debt > 0;
 
   const hasReturn = Number(returnedAmount || 0) > 0;
+  const hasStockOutDeduction = stockOutDeduction > 0;
 
   // Цвет карточки
   let borderColor;
@@ -159,6 +202,40 @@ export function OrderCard({ group, prices, onSelectClient, onOpen }) {
           >
             {market}
           </span>
+
+          {hasOldBox && (
+            <span
+              title="В заказе есть товар, который клиент забрал в своей таре"
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#d29922",
+                background: "rgba(210,153,34,0.12)",
+                border: "1px solid rgba(210,153,34,0.4)",
+                borderRadius: 6,
+                padding: "2px 7px",
+              }}
+            >
+              📦 старая коробка
+            </span>
+          )}
+
+          {hasStockOut && (
+            <span
+              title="В заказе есть товар, которого не хватает на складе"
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: "var(--red)",
+                background: "rgba(248,81,73,.14)",
+                border: "1px solid rgba(248,81,73,0.4)",
+                borderRadius: 6,
+                padding: "2px 7px",
+              }}
+            >
+              🚫 не хватает товара
+            </span>
+          )}
         </div>
 
         <div
@@ -190,6 +267,26 @@ export function OrderCard({ group, prices, onSelectClient, onOpen }) {
           )}
 
           {status && <Badge status={status} />}
+
+          <button
+            onClick={handleToggleStatus}
+            disabled={statusBusy}
+            title="Переключить статус доставки"
+            style={{
+              background:
+                status === "Доставлен" ? "rgba(210,153,34,0.12)" : "rgba(63,185,80,0.12)",
+              border: `1px solid ${status === "Доставлен" ? "#d29922" : "var(--green)"}55`,
+              borderRadius: 7,
+              padding: "4px 10px",
+              color: status === "Доставлен" ? "#d29922" : "var(--green)",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: statusBusy ? "default" : "pointer",
+              opacity: statusBusy ? 0.6 : 1,
+            }}
+          >
+            {status === "Доставлен" ? "🚚 Сделать новым" : "✅ Доставлен"}
+          </button>
 
           {onOpen && (
             <button
@@ -281,55 +378,152 @@ export function OrderCard({ group, prices, onSelectClient, onOpen }) {
           </thead>
 
           <tbody>
-            {rows.map((r, i) => (
-              <tr
-                key={r.id || i}
-                style={{
-                  borderTop: i === 0 ? "none" : "1px solid var(--b1)",
-                }}
-              >
-                <td
-                  style={{
-                    padding: "8px 14px",
-                    fontSize: 13,
-                    fontWeight: 500,
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <ProductThumb src={imageByProduct[r.product]} size={26} />
-                    {r.product}
-                  </div>
-                </td>
+            {rows.map((r, i) => {
+              const qty = Number(r.paidQuantity ?? r.quantity ?? 0);
+              const missingQty = missingFor(r);
+              const isOut = missingQty > 0;
+              const isFullyOut = isOut && missingQty >= qty;
+              const availableQty = Math.max(0, qty - missingQty);
+              const availableSum = availableQty * Number(r.price || 0);
 
-                <td
+              return (
+                <tr
+                  key={r.id || i}
                   style={{
-                    padding: "8px 14px",
-                    fontFamily: "JetBrains Mono,monospace",
-                    fontSize: 12.5,
+                    borderTop: i === 0 ? "none" : "1px solid var(--b1)",
+                    opacity: isFullyOut ? 0.65 : 1,
                   }}
                 >
-                  {r.paidQuantity ?? r.quantity}
-                </td>
+                  <td
+                    style={{
+                      padding: "8px 14px",
+                      fontSize: 13,
+                      fontWeight: 500,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <ProductThumb src={imageByProduct[r.product]} size={26} />
+                      <span
+                        style={{
+                          textDecoration: isFullyOut ? "line-through" : "none",
+                        }}
+                      >
+                        {r.product}
+                      </span>
+                      {r.oldBox && (
+                        <span
+                          title="Своя тара"
+                          style={{ fontSize: 11, color: "#d29922", fontWeight: 600 }}
+                        >
+                          📦
+                          {r.oldBoxColor === "white"
+                            ? " белый"
+                            : r.oldBoxColor === "dark"
+                              ? " тёмный"
+                              : ""}
+                        </span>
+                      )}
+                      {isOut && (
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                            padding: "2px 7px",
+                            borderRadius: 20,
+                            fontSize: 10.5,
+                            fontWeight: 700,
+                            background: "rgba(248,81,73,.14)",
+                            color: "var(--red)",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {isFullyOut ? "🚫 нет в наличии" : `🚫 не хватает: ${missingQty}`}
+                        </span>
+                      )}
+                    </div>
+                  </td>
 
-                <td
-                  style={{
-                    padding: "8px 14px",
-                  }}
-                >
-                  <MoneyCell n={r.price} />
-                </td>
+                  <td
+                    style={{
+                      padding: "8px 14px",
+                      fontFamily: "JetBrains Mono,monospace",
+                      fontSize: 12.5,
+                    }}
+                  >
+                    {isOut ? (
+                      <span style={{ display: "inline-flex", flexDirection: "column", lineHeight: 1.3 }}>
+                        <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                          <span style={{ color: "var(--red)", fontWeight: 700 }}>
+                            {availableQty}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              color: "var(--muted)",
+                              textDecoration: "line-through",
+                            }}
+                          >
+                            {qty}
+                          </span>
+                        </span>
+                      </span>
+                    ) : (
+                      qty
+                    )}
+                  </td>
 
-                <td
-                  style={{
-                    padding: "8px 14px",
-                    textAlign: "right",
-                    fontWeight: 600,
-                  }}
-                >
-                  <MoneyCell n={r.total} />
-                </td>
-              </tr>
-            ))}
+                  <td
+                    style={{
+                      padding: "8px 14px",
+                    }}
+                  >
+                    <MoneyCell n={r.price} />
+                  </td>
+
+                  <td
+                    style={{
+                      padding: "8px 14px",
+                      textAlign: "right",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {isOut ? (
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          flexDirection: "column",
+                          alignItems: "flex-end",
+                          lineHeight: 1.3,
+                        }}
+                      >
+                        <span style={{ color: "var(--red)" }}>
+                          <MoneyCell n={availableSum} />
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: "var(--muted)",
+                            textDecoration: "line-through",
+                          }}
+                        >
+                          <MoneyCell n={r.total} />
+                        </span>
+                      </span>
+                    ) : (
+                      <MoneyCell n={r.total} />
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -402,9 +596,33 @@ export function OrderCard({ group, prices, onSelectClient, onOpen }) {
             </div>
           )}
 
+          {/* Недостача (не хватает товара) */}
+
+          {hasStockOutDeduction && (
+            <div style={{ fontSize: 12 }}>
+              <span
+                style={{
+                  color: "var(--muted)",
+                }}
+              >
+                Недостача:{" "}
+              </span>
+
+              <span
+                style={{
+                  fontFamily: "JetBrains Mono,monospace",
+                  color: "var(--red)",
+                  fontWeight: 600,
+                }}
+              >
+                −{fmtM(stockOutDeduction)}
+              </span>
+            </div>
+          )}
+
           {/* К оплате */}
 
-          {hasReturn && (
+          {(hasReturn || hasStockOutDeduction) && (
             <div style={{ fontSize: 12 }}>
               <span
                 style={{

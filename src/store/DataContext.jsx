@@ -186,6 +186,12 @@ export const AFFECTS = {
     "months",
     "production",
     "deliveryDetail",
+    // Заказ бартерному клиенту (имя совпадает с поставщиком) может
+    // автоматически создать зачёт на бэкенде — подтягиваем и эти данные.
+    "payments",
+    "supplierPayments",
+    "offsets",
+    "suppliersDebt",
   ],
   price: ["prices"],
   payment: ["payments", "orders", "debtors", "finance", "analytics", "months"],

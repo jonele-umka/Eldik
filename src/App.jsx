@@ -495,6 +495,7 @@ function Shell() {
             onSelectClient={openClientDetail}
             payments={data.payments} // ← добавить
             offsets={data.offsets} // ← добавить
+            openingBalances={data.openingBalances}
           />
         );
       case "finance":

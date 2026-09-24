@@ -1,13 +1,13 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   fmtM,
   filterSearch,
   unique,
   buildOrderGroups,
   getMonth,
-  parseDate,
   distributeClientCredits,
 } from "../utils/index.js";
+import { dateTimeKey } from "../utils/ledger.js";
 
 import { KPI, Select } from "../components/UI.jsx";
 import { Btn } from "../components/Form.jsx";
@@ -18,7 +18,7 @@ import { S } from "../utils/styles.js";
 import { ClientAutocomplete } from "../components/ClientAutocomplete.jsx";
 import { useData } from "../store/DataContext.jsx";
 
-const GPAGE = 20;
+const GPAGE = 10;
 
 export default function OrdersPage({
   data,
@@ -28,10 +28,22 @@ export default function OrdersPage({
   onSelectClient,
   payments,
   offsets,
+  openingBalances,
 }) {
   const arr = data || [];
   const { data: store } = useData();
   const prices = Array.isArray(store.prices) ? store.prices : [];
+
+  // key "дата доставки::товар" -> сколько не хватает (шт), отмечено на
+  // странице производства/развозки — показываем ту же отметку в заказах.
+  const stockOutMap = useMemo(() => {
+    const m = new Map();
+    (Array.isArray(store.stockOuts) ? store.stockOuts : []).forEach((r) => {
+      if (r.date && r.product && Number(r.qty) > 0)
+        m.set(`${r.date}::${r.product}`, Number(r.qty));
+    });
+    return m;
+  }, [store.stockOuts]);
 
   // filters
   const [market, setMarket] = useState("");
@@ -73,25 +85,53 @@ export default function OrdersPage({
     return r;
   }, [arr, search, market, status, month, client]);
 
+  // Поиск (глобальная строка сверху) и переключение сортировки меняют
+  // набор/порядок заказов так же, как фильтры рынка/статуса/месяца —
+  // значит и страницу тоже нужно сбрасывать на первую, иначе после
+  // поиска можно застрять на пустой странице №3.
+  useEffect(() => {
+    setPage(1);
+  }, [search, sortDir]);
+
   const allGroups = useMemo(() => {
     const groups = buildOrderGroups(filteredRows);
-    distributeClientCredits(groups, payments, offsets);
+    distributeClientCredits(groups, payments, offsets, openingBalances);
 
+    // Сортируем по дате ДОСТАВКИ (не создания заказа) — иначе если
+    // сегодня после обеда оформляешь вчерашний заказ, он попадёт наверх
+    // списка, а более ранние сегодняшние заказы окажутся внизу.
     return groups.sort((a, b) => {
-      const diff = parseDate(b.orderDate) - parseDate(a.orderDate);
-      return sortDir === "desc" ? diff : -diff;
+      const diff = dateTimeKey(b.deliveryDate) - dateTimeKey(a.deliveryDate);
+      if (diff !== 0) return sortDir === "desc" ? diff : -diff;
+      const diff2 = dateTimeKey(b.orderDate) - dateTimeKey(a.orderDate);
+      return sortDir === "desc" ? diff2 : -diff2;
     });
-  }, [filteredRows, sortDir, payments, offsets]);
+  }, [filteredRows, sortDir, payments, offsets, openingBalances]);
 
   const totalPages = Math.ceil(allGroups.length / GPAGE);
   const groups = allGroups.slice((page - 1) * GPAGE, page * GPAGE);
+
+  // Сколько не хватает по заказу (сумма недостачи по всем его строкам) —
+  // та же логика, что в OrderCard, нужна и тут, чтобы общий долг по
+  // списку заказов совпадал с долгом, который показывает каждая карточка.
+  const stockOutDeductionFor = (g) => {
+    if (!g.deliveryDate) return 0;
+    return (g.rows || []).reduce((s, r) => {
+      const qty = Number(r.paidQuantity ?? r.quantity ?? 0);
+      const missing = Number(stockOutMap.get(`${g.deliveryDate}::${r.product}`) || 0);
+      return s + Math.min(qty, missing) * Number(r.price || 0);
+    }, 0);
+  };
 
   // KPIs
   const kpiTotal = allGroups.reduce((s, g) => s + g.totalSum, 0);
   const kpiPaid = allGroups.reduce((s, g) => s + g.paidAmount, 0);
   const kpiRet = allGroups.reduce((s, g) => s + g.returnedAmount, 0);
   const kpiDebt = allGroups.reduce((s, g) => {
-    const effectiveTotal = Math.max(0, g.totalSum - g.returnedAmount);
+    const effectiveTotal = Math.max(
+      0,
+      g.totalSum - g.returnedAmount - stockOutDeductionFor(g),
+    );
     const paid =
       g.totalPaidAmount !== undefined ? g.totalPaidAmount : g.paidAmount;
     return s + Math.max(0, effectiveTotal - paid);
@@ -267,6 +307,7 @@ export default function OrdersPage({
             key={g.oid}
             group={g}
             prices={prices}
+            stockOutMap={stockOutMap}
             isMobile={isMobile}
             onSelectClient={onSelectClient}
             onOpen={setOpenOrder}

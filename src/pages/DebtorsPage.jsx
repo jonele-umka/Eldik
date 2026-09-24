@@ -49,6 +49,7 @@ export default function DebtorsPage({ data, search, onSelectClient }) {
               "Клиент",
               "Нач. остаток",
               "Долг по новым заказам",
+              "Оплачено",
               "Общий долг",
               "Прогресс",
             ].map((h) => (
@@ -60,7 +61,7 @@ export default function DebtorsPage({ data, search, onSelectClient }) {
           {filtered.length === 0 ? (
             <tr>
               <td
-                colSpan={5}
+                colSpan={6}
                 style={{
                   textAlign: "center",
                   padding: 40,
@@ -91,6 +92,9 @@ export default function DebtorsPage({ data, search, onSelectClient }) {
                   </TD>
                   <TD>
                     <MoneyCell n={r.newOrdersDebt ?? r.debt} pos={false} />
+                  </TD>
+                  <TD>
+                    <MoneyCell n={r.paid} pos />
                   </TD>
                   <TD>
                     <MoneyCell n={r.debt} pos={false} />

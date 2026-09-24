@@ -8,6 +8,7 @@ import { useUI } from "../store/UIContext.jsx";
 import {
   deleteRawMaterial,
   forceUpdateAll,
+  normalizeNames,
   saveRawMaterial,
   updateRawMaterial,
 } from "../services/api.js";
@@ -23,6 +24,7 @@ export default function SettingsPage({ user, onLogout }) {
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [recalc, setRecalc] = useState(false);
+  const [normalizing, setNormalizing] = useState(false);
 
   const saveRaw = async () => {
     if (!editing.name.trim()) return toast("Укажите название", "err");
@@ -68,6 +70,25 @@ export default function SettingsPage({ user, onLogout }) {
     }
   };
 
+  const handleNormalizeNames = async () => {
+    try {
+      setNormalizing(true);
+      const res = await normalizeNames();
+      await refreshAll();
+      const changed = res?.changed ?? 0;
+      toast(
+        changed > 0
+          ? `Готово: исправлено записей — ${changed}`
+          : "Готово: расхождений не найдено",
+        "ok",
+      );
+    } catch (e) {
+      toast(e.message, "err");
+    } finally {
+      setNormalizing(false);
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ ...S.card, maxWidth: 560, padding: "22px 24px" }}>
@@ -102,6 +123,24 @@ export default function SettingsPage({ user, onLogout }) {
         </p>
         <Btn variant="primary" onClick={handleRecalc} loading={recalc}>
           🔄 Пересчитать всё
+        </Btn>
+      </div>
+
+      <div style={{ ...S.card, maxWidth: 560, padding: "22px 24px" }}>
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>
+          Синхронизация имён клиентов/поставщиков
+        </div>
+        <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>
+          Если один и тот же клиент или поставщик где-то сохранён под
+          сокращённым именем (например «Элдияр» вместо «Элдияр ДФ»),
+          эта кнопка один раз пройдётся по всем листам (заказы, оплаты,
+          возвраты, взаимозачёты, начальные остатки, закупки) и приведёт
+          имя везде к полному варианту из справочника «Клиенты»/
+          «Поставщики». Новые записи теперь и так сохраняются с полным
+          именем — кнопка нужна только чтобы поправить старые.
+        </p>
+        <Btn variant="primary" onClick={handleNormalizeNames} loading={normalizing}>
+          🔗 Синхронизировать имена
         </Btn>
       </div>
 
