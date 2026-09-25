@@ -40,6 +40,9 @@ export async function apiPost(body) {
 /* ─── ЗАКАЗЫ ───────────────────────────────────────────────────────────── */
 export const saveOrder = (d) => apiPost({ action: "saveOrder", ...d });
 export const updateOrder = (d) => apiPost({ action: "updateOrder", ...d });
+// Обновляет только "шапку" заказа (рынок/клиент/даты/статус) сразу для
+// ВСЕХ строк заказа одним запросом — вместо updateOrder на каждую строку.
+export const updateOrderHeader = (d) => apiPost({ action: "updateOrderHeader", ...d });
 export const addOrderRow = (d) => apiPost({ action: "addOrderRow", ...d });
 export const deleteOrder = (orderId) => apiPost({ action: "deleteOrder", orderId });
 export const deleteOrderRow = (rowId) => apiPost({ action: "deleteOrderRow", rowId });

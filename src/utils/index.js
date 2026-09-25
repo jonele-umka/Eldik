@@ -73,6 +73,9 @@ export function sortArr(arr, col, dir) {
 }
 
 export function unique(arr, key) {
+  // Защита от падения экрана целиком, если данные ещё не загрузились
+  // (например бэкенд временно недоступен) и arr — не массив.
+  if (!Array.isArray(arr)) return [];
   return [...new Set(arr.map((r) => r[key]).filter(Boolean))].sort();
 }
 
@@ -105,6 +108,18 @@ export function buildOrderGroups(rows) {
     );
   });
   return [...map.values()];
+}
+
+// Позволяет писать количество прямо как в тетради — "100х50", "50х3х5",
+// через х/×/* — и само перемножает в одно итоговое число. Обычное число
+// (без множителей) возвращается как есть.
+export function parseQtyExpr(str) {
+  const parts = String(str || "")
+    .split(/[x×хX*]/)
+    .map((p) => Number(String(p).trim().replace(",", ".")))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (!parts.length) return 0;
+  return parts.reduce((a, b) => a * b, 1);
 }
 
 export const parseDate = (s) => {

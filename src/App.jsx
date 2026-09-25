@@ -506,6 +506,7 @@ function Shell() {
         return (
           <DebtorsPage
             data={data.debtors}
+            clients={data.clients}
             search={search}
             onSelectClient={openClientDetail}
           />

@@ -1,6 +1,6 @@
 // Карточка заказа со всем функционалом мобильного orderDetail:
 // правка состава, статус, оплаты, возвраты, удаление, печать накладной.
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Modal,
   Btn,
@@ -22,6 +22,7 @@ import {
   savePayment,
   saveReturn,
   updateOrder,
+  updateOrderHeader,
   updatePayment,
   updateStatus,
 } from "../services/api.js";
@@ -29,10 +30,7 @@ import { priceOf } from "../utils/promo.js";
 import { fmtM } from "../utils/index.js";
 import { printInvoice } from "../utils/invoice.js";
 
-const norm = (s) =>
-  String(s || "")
-    .trim()
-    .toLowerCase();
+const norm = (s) => String(s || "").trim().toLowerCase();
 
 export default function OrderDetailModal({ group, onClose }) {
   const { data, mutate, refresh } = useData();
@@ -57,9 +55,7 @@ export default function OrderDetailModal({ group, onClose }) {
 
   const [market, setMarket] = useState(group.market || "");
   const [client, setClient] = useState(group.client || "");
-  const [orderDate, setOrderDate] = useState(
-    (group.orderDate || "").split(" ")[0],
-  );
+  const [orderDate, setOrderDate] = useState((group.orderDate || "").split(" ")[0]);
   const [deliveryDate, setDeliveryDate] = useState(
     (group.deliveryDate || "").split(" ")[0],
   );
@@ -75,6 +71,30 @@ export default function OrderDetailModal({ group, onClose }) {
     })),
   );
   const [busy, setBusy] = useState(false);
+
+  // Снимок исходных значений на момент открытия — чтобы при сохранении
+  // отправлять на бэкенд только то, что реально поменяли, а не всё подряд.
+  const initialHeaderRef = useRef({
+    market: group.market || "",
+    client: group.client || "",
+    orderDate: (group.orderDate || "").split(" ")[0],
+    deliveryDate: (group.deliveryDate || "").split(" ")[0],
+    status: group.status || "Новый",
+  });
+  const initialRowsByIdRef = useRef(
+    new Map(
+      group.rows.map((r) => [
+        String(r.id),
+        {
+          product: r.product,
+          quantity: String(r.paidQuantity ?? r.quantity ?? 0),
+          comment: r.comment || "",
+          oldBox: !!r.oldBox,
+          oldBoxColor: r.oldBoxColor || "",
+        },
+      ]),
+    ),
+  );
 
   // формы
   const [payAmount, setPayAmount] = useState("");
@@ -99,8 +119,7 @@ export default function OrderDetailModal({ group, onClose }) {
   // (с ценой "своя тара") — как есть, снизу.
   const isWeightedProduct = (p) =>
     Number(p?.ownBoxPrice || 0) > 0 ||
-    (Number(p?.ownBoxPriceWhite || 0) > 0 &&
-      Number(p?.ownBoxPriceDark || 0) > 0);
+    (Number(p?.ownBoxPriceWhite || 0) > 0 && Number(p?.ownBoxPriceDark || 0) > 0);
   const sortedProducts = useMemo(() => {
     const boxed = prices
       .filter((p) => !isWeightedProduct(p))
@@ -114,11 +133,7 @@ export default function OrderDetailModal({ group, onClose }) {
   // товара задана ownBoxPrice).
   const priceForRow = (row) => {
     const catalogRow = priceRowOf(row.product);
-    if (
-      row.oldBox &&
-      canColorSplit(catalogRow) &&
-      row.oldBoxColor === "white"
-    ) {
+    if (row.oldBox && canColorSplit(catalogRow) && row.oldBoxColor === "white") {
       return Number(catalogRow.ownBoxPriceWhite);
     }
     if (row.oldBox && canColorSplit(catalogRow) && row.oldBoxColor === "dark") {
@@ -132,9 +147,7 @@ export default function OrderDetailModal({ group, onClose }) {
 
   // Товары, у которых старая коробка делится по цвету (белый/тёмный).
   const canColorSplit = (row) =>
-    !!row &&
-    Number(row.ownBoxPriceWhite || 0) > 0 &&
-    Number(row.ownBoxPriceDark || 0) > 0;
+    !!row && Number(row.ownBoxPriceWhite || 0) > 0 && Number(row.ownBoxPriceDark || 0) > 0;
 
   const orderPayments = useMemo(
     () =>
@@ -167,9 +180,7 @@ export default function OrderDetailModal({ group, onClose }) {
   const missingQtyFor = (row) => {
     if (!deliveryDate || !row.product) return 0;
     const qty = Number(row.quantity) || 0;
-    const missing = Number(
-      stockOutMap.get(`${deliveryDate}::${row.product}`) || 0,
-    );
+    const missing = Number(stockOutMap.get(`${deliveryDate}::${row.product}`) || 0);
     return Math.min(qty, missing);
   };
   const stockOutDeduction = rows.reduce(
@@ -177,19 +188,14 @@ export default function OrderDetailModal({ group, onClose }) {
     0,
   );
 
-  const paidAmount = orderPayments.reduce(
-    (s, p) => s + Number(p.amount || 0),
-    0,
-  );
+  const paidAmount = orderPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
   const returnedAmount = Number(group.returnedAmount || 0);
   const netSum = Math.max(0, totalSum - returnedAmount - stockOutDeduction);
   const debt = Math.max(0, netSum - paidAmount);
 
   /* ─── состав заказа ─── */
   const setRow = (i, patch) =>
-    setRows((prev) =>
-      prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)),
-    );
+    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
   const handleRemoveRow = (i) => {
     const row = rows[i];
@@ -237,11 +243,59 @@ export default function OrderDetailModal({ group, onClose }) {
   };
 
   const handleSaveChanges = async () => {
-    if (!rows.length)
-      return toast("В заказе должен быть хотя бы один товар", "err");
+    if (!rows.length) return toast("В заказе должен быть хотя бы один товар", "err");
+
+    const initHeader = initialHeaderRef.current;
+    const headerChanged =
+      market !== initHeader.market ||
+      client !== initHeader.client ||
+      orderDate !== initHeader.orderDate ||
+      deliveryDate !== initHeader.deliveryDate ||
+      status !== initHeader.status;
+
+    // Заказ хранится по одной строке на товар — раньше при любом
+    // сохранении отправлялся отдельный запрос на КАЖДУЮ строку заказа,
+    // даже если её никто не трогал. Теперь: шапка (рынок/клиент/даты/
+    // статус) уходит ОДНИМ запросом сразу на весь заказ, а по товарам —
+    // только те строки, которые реально изменили (новые/удалённые уже
+    // обрабатываются сразу при добавлении/удалении, не здесь).
+    const changedRows = rows.filter((row) => {
+      const isNew = !row.id || String(row.id).startsWith("NEW_");
+      if (isNew) return true;
+      const before = initialRowsByIdRef.current.get(String(row.id));
+      if (!before) return true;
+      return (
+        before.product !== row.product ||
+        before.quantity !== row.quantity ||
+        before.comment !== (row.comment || "") ||
+        before.oldBox !== !!row.oldBox ||
+        before.oldBoxColor !== (row.oldBoxColor || "")
+      );
+    });
+
+    if (!headerChanged && !changedRows.length) {
+      toast("Изменений нет", "ok");
+      onClose();
+      return;
+    }
+
     try {
       setBusy(true);
-      for (const row of rows) {
+
+      // Сначала шапка — одним запросом на все строки заказа сразу.
+      if (headerChanged) {
+        await updateOrderHeader({
+          orderId: group.oid,
+          orderDate,
+          deliveryDate,
+          client,
+          market,
+          status,
+        });
+      }
+
+      // Затем — только реально изменённые (или новые) товары.
+      for (const row of changedRows) {
         const qty = Number(row.quantity) || 0;
         const item = {
           product: row.product,
@@ -253,23 +307,38 @@ export default function OrderDetailModal({ group, onClose }) {
           oldBox: !!row.oldBox,
           oldBoxColor: row.oldBoxColor || "",
         };
-        const payload = {
-          orderId: group.oid,
-          orderDate,
-          client,
-          market,
-          deliveryDate,
-          status,
-          items: [item],
-        };
         const isNew = !row.id || String(row.id).startsWith("NEW_");
-        if (isNew) await addOrderRow(payload);
-        else await updateOrder({ rowId: row.id, ...payload });
+        if (isNew) {
+          await addOrderRow({
+            orderId: group.oid,
+            orderDate,
+            client,
+            market,
+            deliveryDate,
+            status,
+            items: [item],
+          });
+        } else {
+          // Шапку сюда не передаём — она уже обновлена (или не менялась),
+          // updateOrder на бэкенде сохраняет то, что уже есть в строке.
+          await updateOrder({ rowId: row.id, items: [item] });
+        }
       }
+
       await refresh(AFFECTS.order);
       toast("Изменения сохранены", "ok");
       onClose();
     } catch (e) {
+      // Apps Script иногда отвечает ошибкой (напр. 404) уже ПОСЛЕ того,
+      // как запрос на сервере отработал — рвётся только доставка ответа,
+      // не само сохранение. Подтягиваем данные и здесь, чтобы сразу было
+      // видно, сохранилось ли на самом деле, а не только после
+      // самостоятельного обновления страницы.
+      try {
+        await refresh(AFFECTS.order);
+      } catch {
+        /* не критично */
+      }
       toast("Не удалось сохранить: " + e.message, "err");
     } finally {
       setBusy(false);
@@ -298,10 +367,11 @@ export default function OrderDetailModal({ group, onClose }) {
       onConfirm: async () => {
         try {
           setBusy(true);
-          await mutate(
-            () => deleteOrder(group.oid),
-            [...AFFECTS.order, "payments", "returns"],
-          );
+          await mutate(() => deleteOrder(group.oid), [
+            ...AFFECTS.order,
+            "payments",
+            "returns",
+          ]);
           toast("Заказ удалён", "ok");
           onClose();
         } catch (e) {
@@ -391,10 +461,7 @@ export default function OrderDetailModal({ group, onClose }) {
     const bought = Number(row?.quantity || 0);
     const already = returnedByProduct[retProduct] || 0;
     if (qty > bought - already)
-      return toast(
-        `Можно вернуть не более ${Math.max(0, bought - already)} шт`,
-        "err",
-      );
+      return toast(`Можно вернуть не более ${Math.max(0, bought - already)} шт`, "err");
 
     try {
       setBusy(true);
@@ -445,26 +512,14 @@ export default function OrderDetailModal({ group, onClose }) {
       subtitle={`${group.market} · создан ${group.orderDate || "—"}`}
       footer={
         <>
-          <Btn
-            variant="danger"
-            onClick={handleDeleteOrder}
-            disabled={busy}
-            style={{ marginRight: "auto" }}
-          >
+          <Btn variant="danger" onClick={handleDeleteOrder} disabled={busy} style={{ marginRight: "auto" }}>
             🗑 Удалить заказ
           </Btn>
           <Btn
             variant="ghost"
             onClick={() =>
               printInvoice({
-                order: {
-                  ...group,
-                  market,
-                  client,
-                  deliveryDate,
-                  orderDate,
-                  status,
-                },
+                order: { ...group, market, client, deliveryDate, orderDate, status },
                 // В накладную идёт фактически доступное количество — то,
                 // чего не хватает, вычитаем, чтобы сумма к оплате не
                 // включала товар, которого реально нет.
@@ -516,13 +571,7 @@ export default function OrderDetailModal({ group, onClose }) {
               padding: "9px 11px",
             }}
           >
-            <div
-              style={{
-                fontSize: 10.5,
-                color: "var(--muted)",
-                textTransform: "uppercase",
-              }}
-            >
+            <div style={{ fontSize: 10.5, color: "var(--muted)", textTransform: "uppercase" }}>
               {l}
             </div>
             <div
@@ -561,12 +610,7 @@ export default function OrderDetailModal({ group, onClose }) {
           />
         </Field>
         <Field label="Клиент">
-          <SelectField
-            value={client}
-            onChange={setClient}
-            options={marketClients}
-            placeholder="—"
-          />
+          <SelectField value={client} onChange={setClient} options={marketClients} placeholder="—" />
         </Field>
         <Field label="Дата заявки">
           <DateField value={orderDate} onChange={setOrderDate} />
@@ -621,14 +665,7 @@ export default function OrderDetailModal({ group, onClose }) {
               marginBottom: 8,
             }}
           >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                flexWrap: "wrap",
-              }}
-            >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <ProductThumb src={catalogRow?.image} size={32} />
               <div style={{ flex: 1, minWidth: 140 }}>
                 <div
@@ -642,20 +679,16 @@ export default function OrderDetailModal({ group, onClose }) {
                 </div>
                 <div style={{ fontSize: 12, color: "var(--muted)" }}>
                   {price} сом / шт
-                  {r.oldBox &&
-                    canSplit &&
-                    Number(catalogRow?.weight || 0) > 0 && (
-                      <span style={{ color: "var(--muted)" }}>
-                        {" "}
-                        ({Math.round(price / Number(catalogRow.weight))} сом/кг)
-                      </span>
-                    )}
+                  {r.oldBox && canSplit && Number(catalogRow?.weight || 0) > 0 && (
+                    <span style={{ color: "var(--muted)" }}>
+                      {" "}
+                      ({Math.round(price / Number(catalogRow.weight))} сом/кг)
+                    </span>
+                  )}
                   {r.oldBox && canOldBox && (
                     <span style={{ color: "#d29922", marginLeft: 6 }}>
                       📦 старая коробка
-                      {canSplit &&
-                        r.oldBoxColor &&
-                        (r.oldBoxColor === "white" ? " · белый" : " · тёмный")}
+                      {canSplit && r.oldBoxColor && (r.oldBoxColor === "white" ? " · белый" : " · тёмный")}
                     </span>
                   )}
                 </div>
@@ -675,9 +708,7 @@ export default function OrderDetailModal({ group, onClose }) {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {isFullyOut
-                        ? "🚫 нет в наличии"
-                        : `🚫 не хватает: ${missingQty}`}
+                      {isFullyOut ? "🚫 нет в наличии" : `🚫 не хватает: ${missingQty}`}
                     </span>
                   </div>
                 )}
@@ -688,10 +719,7 @@ export default function OrderDetailModal({ group, onClose }) {
                   onClick={() =>
                     setRow(i, {
                       oldBox: !r.oldBox,
-                      oldBoxColor:
-                        !r.oldBox && canSplit
-                          ? r.oldBoxColor || "white"
-                          : r.oldBoxColor,
+                      oldBoxColor: !r.oldBox && canSplit ? r.oldBoxColor || "white" : r.oldBoxColor,
                     })
                   }
                   title={
@@ -700,9 +728,7 @@ export default function OrderDetailModal({ group, onClose }) {
                       : `Клиент забирает в своей таре — цена ${catalogRow.ownBoxPrice} сом вместо ${catalogRow.price} сом`
                   }
                   style={{
-                    background: r.oldBox
-                      ? "rgba(210,153,34,0.15)"
-                      : "var(--s1)",
+                    background: r.oldBox ? "rgba(210,153,34,0.15)" : "var(--s1)",
                     border: `1px solid ${r.oldBox ? "#d29922" : "var(--b1)"}`,
                     borderRadius: 7,
                     padding: "5px 8px",
@@ -727,15 +753,11 @@ export default function OrderDetailModal({ group, onClose }) {
                       key={val}
                       onClick={() => setRow(i, { oldBoxColor: val })}
                       style={{
-                        background:
-                          r.oldBoxColor === val
-                            ? "rgba(210,153,34,0.2)"
-                            : "var(--s1)",
+                        background: r.oldBoxColor === val ? "rgba(210,153,34,0.2)" : "var(--s1)",
                         border: `1px solid ${r.oldBoxColor === val ? "#d29922" : "var(--b1)"}`,
                         borderRadius: 7,
                         padding: "5px 8px",
-                        color:
-                          r.oldBoxColor === val ? "#d29922" : "var(--muted)",
+                        color: r.oldBoxColor === val ? "#d29922" : "var(--muted)",
                         fontSize: 11,
                         fontWeight: 600,
                         cursor: "pointer",
@@ -750,9 +772,7 @@ export default function OrderDetailModal({ group, onClose }) {
 
               <input
                 value={r.quantity}
-                onChange={(e) =>
-                  setRow(i, { quantity: e.target.value.replace(/\D/g, "") })
-                }
+                onChange={(e) => setRow(i, { quantity: e.target.value.replace(/\D/g, "") })}
                 style={{
                   width: 70,
                   textAlign: "center",
@@ -775,24 +795,9 @@ export default function OrderDetailModal({ group, onClose }) {
                 }}
               >
                 {isOut ? (
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      flexDirection: "column",
-                      alignItems: "flex-end",
-                      lineHeight: 1.3,
-                    }}
-                  >
-                    <span style={{ color: "var(--red)" }}>
-                      {fmtM(availableQty * price)}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 11,
-                        color: "var(--muted)",
-                        textDecoration: "line-through",
-                      }}
-                    >
+                  <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.3 }}>
+                    <span style={{ color: "var(--red)" }}>{fmtM(availableQty * price)}</span>
+                    <span style={{ fontSize: 11, color: "var(--muted)", textDecoration: "line-through" }}>
                       {fmtM(qty * price)}
                     </span>
                   </span>
@@ -801,11 +806,7 @@ export default function OrderDetailModal({ group, onClose }) {
                 )}
               </div>
 
-              <IconBtn
-                title="Удалить"
-                color="var(--red)"
-                onClick={() => handleRemoveRow(i)}
-              >
+              <IconBtn title="Удалить" color="var(--red)" onClick={() => handleRemoveRow(i)}>
                 ✕
               </IconBtn>
             </div>
@@ -860,11 +861,7 @@ export default function OrderDetailModal({ group, onClose }) {
           >
             ✏️
           </IconBtn>
-          <IconBtn
-            title="Удалить"
-            color="var(--red)"
-            onClick={() => handleDeletePayment(p)}
-          >
+          <IconBtn title="Удалить" color="var(--red)" onClick={() => handleDeletePayment(p)}>
             🗑
           </IconBtn>
         </div>
@@ -884,9 +881,7 @@ export default function OrderDetailModal({ group, onClose }) {
               <Field label="Дата">
                 <DateField
                   value={editingPay.paymentDate}
-                  onChange={(v) =>
-                    setEditingPay((s) => ({ ...s, paymentDate: v }))
-                  }
+                  onChange={(v) => setEditingPay((s) => ({ ...s, paymentDate: v }))}
                 />
               </Field>
             </div>
@@ -895,9 +890,7 @@ export default function OrderDetailModal({ group, onClose }) {
                 <TextInput
                   inputMode="numeric"
                   value={editingPay.amount}
-                  onChange={(e) =>
-                    setEditingPay((s) => ({ ...s, amount: e.target.value }))
-                  }
+                  onChange={(e) => setEditingPay((s) => ({ ...s, amount: e.target.value }))}
                 />
               </Field>
             </div>
@@ -912,14 +905,7 @@ export default function OrderDetailModal({ group, onClose }) {
           </div>
         </div>
       ) : (
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-            flexWrap: "wrap",
-            alignItems: "flex-end",
-          }}
-        >
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div style={{ flex: 1, minWidth: 130 }}>
             <Field label="Дата оплаты">
               <DateField value={payDate} onChange={setPayDate} />
@@ -935,12 +921,7 @@ export default function OrderDetailModal({ group, onClose }) {
               />
             </Field>
           </div>
-          <Btn
-            variant="green"
-            onClick={handleAddPayment}
-            loading={busy}
-            style={{ marginBottom: 12 }}
-          >
+          <Btn variant="green" onClick={handleAddPayment} loading={busy} style={{ marginBottom: 12 }}>
             💵 Внести оплату
           </Btn>
         </div>
@@ -948,14 +929,7 @@ export default function OrderDetailModal({ group, onClose }) {
 
       {/* Возврат */}
       {sectionTitle("Оформить возврат")}
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          flexWrap: "wrap",
-          alignItems: "flex-end",
-        }}
-      >
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
         <div style={{ flex: 2, minWidth: 170 }}>
           <Field label="Товар">
             <SelectField
@@ -964,10 +938,7 @@ export default function OrderDetailModal({ group, onClose }) {
               options={rows.map((r) => {
                 const already = returnedByProduct[r.product] || 0;
                 const left = Math.max(0, (Number(r.quantity) || 0) - already);
-                return {
-                  value: r.product,
-                  label: `${r.product} — можно ${left} шт`,
-                };
+                return { value: r.product, label: `${r.product} — можно ${left} шт` };
               })}
               placeholder="— выберите —"
             />
@@ -982,12 +953,7 @@ export default function OrderDetailModal({ group, onClose }) {
             />
           </Field>
         </div>
-        <Btn
-          variant="warn"
-          onClick={handleReturn}
-          loading={busy}
-          style={{ marginBottom: 12 }}
-        >
+        <Btn variant="warn" onClick={handleReturn} loading={busy} style={{ marginBottom: 12 }}>
           ↩️ Возврат
         </Btn>
       </div>
