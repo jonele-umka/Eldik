@@ -20,6 +20,11 @@ const CACHE_KEY = "app_data_cache_v2";
 const CACHE_TIME_KEY = "app_data_cache_time_v2";
 const CACHE_TTL = 1000 * 60 * 5; // 5 минут — потом тихо обновляем в фоне
 
+// Автообновление заказов, чтобы не приходилось жать "Обновить" самому.
+// Раньше если страница просто открыта (вкладка держится) — новый заказ,
+// добавленный кем-то другим, не появлялся сам, пока не обновишь вручную.
+const ORDERS_POLL_MS = 30 * 1000; // пока вкладка открыта — каждые 30с
+
 // ключ в data -> action бэкенда
 export const ENDPOINTS = {
   orders: "orders",
@@ -59,7 +64,7 @@ function timeLabel(ts) {
 
 export function DataProvider({ apiUrl, children }) {
   const [data, setData] = useState({});
-  const [ready, setReady] = useState(false);   // первая загрузка завершена
+  const [ready, setReady] = useState(false); // первая загрузка завершена
   const [loading, setLoading] = useState(false); // идёт фоновое обновление
   const [busyKeys, setBusyKeys] = useState([]); // какие таблицы обновляются
   const [updatedAt, setUpdatedAt] = useState("");
@@ -81,19 +86,22 @@ export function DataProvider({ apiUrl, children }) {
   }, []);
 
   // Загрузка конкретных таблиц. Остальные данные остаются в памяти.
+  // silent — для тихого автообновления в фоне (см. опрос заказов ниже):
+  // не крутим общий индикатор загрузки, чтобы не мигало само по себе
+  // каждые 30 секунд, пока человек просто держит вкладку открытой.
   const refresh = useCallback(
-    async (keys = ALL_KEYS) => {
+    async (keys = ALL_KEYS, { silent = false } = {}) => {
       if (!apiUrl) return;
       const list = keys.filter((k) => ENDPOINTS[k]);
       if (!list.length) return;
 
-      setBusyKeys((p) => [...new Set([...p, ...list])]);
-      setLoading(true);
+      if (!silent) {
+        setBusyKeys((p) => [...new Set([...p, ...list])]);
+        setLoading(true);
+      }
 
       const results = await Promise.allSettled(
-        list.map((key) =>
-          apiGet(ENDPOINTS[key]).then((d) => ({ key, d })),
-        ),
+        list.map((key) => apiGet(ENDPOINTS[key]).then((d) => ({ key, d }))),
       );
 
       const patch = {};
@@ -107,8 +115,10 @@ export function DataProvider({ apiUrl, children }) {
         return next;
       });
 
-      setBusyKeys((p) => p.filter((k) => !list.includes(k)));
-      setLoading(false);
+      if (!silent) {
+        setBusyKeys((p) => p.filter((k) => !list.includes(k)));
+        setLoading(false);
+      }
       setUpdatedAt(timeLabel(Date.now()));
       setReady(true);
     },
@@ -138,6 +148,35 @@ export function DataProvider({ apiUrl, children }) {
     } catch (_) {}
     await refresh(ALL_KEYS);
     if (!hadCache) setReady(true);
+  }, [apiUrl, refresh]);
+
+  // Когда возвращаются на вкладку (сворачивали окно, переключались на
+  // другую вкладку, комп выходил из сна) — сразу подтягиваем всё заново,
+  // а не ждём, пока сам нажмёт "Обновить".
+  useEffect(() => {
+    if (!apiUrl) return;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh(ALL_KEYS);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [apiUrl, refresh]);
+
+  // Пока вкладка открыта — тихо подтягиваем заказы каждые 30 секунд сами,
+  // без нажатий. Именно заказы, а не всё подряд: это то, что реально
+  // должно появляться сразу (новый заказ), а не перегружать бэкенд
+  // лишними запросами по всем таблицам разом.
+  useEffect(() => {
+    if (!apiUrl) return;
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible")
+        refresh(["orders"], { silent: true });
+    }, ORDERS_POLL_MS);
+    return () => clearInterval(id);
   }, [apiUrl, refresh]);
 
   // Обёртка для мутаций: выполняет запрос и обновляет только нужные таблицы.
@@ -185,7 +224,17 @@ export function DataProvider({ apiUrl, children }) {
       boot,
       mutate,
     }),
-    [data, ready, loading, busyKeys, updatedAt, mutating, refresh, boot, mutate],
+    [
+      data,
+      ready,
+      loading,
+      busyKeys,
+      updatedAt,
+      mutating,
+      refresh,
+      boot,
+      mutate,
+    ],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
@@ -216,7 +265,14 @@ export const AFFECTS = {
   supplier: ["suppliers", "suppliersDebt"],
   purchase: ["purchases", "suppliersDebt"],
   supplierPayment: ["supplierPayments", "suppliersDebt"],
-  offset: ["offsets", "payments", "supplierPayments", "debtors", "suppliersDebt", "finance"],
+  offset: [
+    "offsets",
+    "payments",
+    "supplierPayments",
+    "debtors",
+    "suppliersDebt",
+    "finance",
+  ],
   opening: ["openingBalances", "debtors", "suppliersDebt"],
   raw: ["rawMaterials"],
   note: ["notes"],

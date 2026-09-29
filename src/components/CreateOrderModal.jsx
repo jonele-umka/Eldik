@@ -9,7 +9,7 @@ import {
   TextInput,
   DateField,
   SelectField,
-  tomorrowString,
+  todayString,
 } from "./Form.jsx";
 import { useData, AFFECTS } from "../store/DataContext.jsx";
 import { useUI } from "../store/UIContext.jsx";
@@ -25,15 +25,29 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
   const clients = Array.isArray(data.clients) ? data.clients : [];
   const prices = Array.isArray(data.prices) ? data.prices : [];
 
-  const markets = useMemo(
-    () => [...new Set(clients.map((c) => c.market).filter(Boolean))].sort(),
-    [clients],
-  );
+  // "Дордой-фуд" — самый частый рынок, его и предлагаем первым по
+  // умолчанию (раньше список просто сортировался по алфавиту, и первым
+  // оказывался "Аламедин"). Сравниваем без учёта регистра/пробелов —
+  // мало ли как именно записано в справочнике клиентов.
+  const normMarket = (s) =>
+    String(s || "")
+      .trim()
+      .toLowerCase();
+  const markets = useMemo(() => {
+    const list = [
+      ...new Set(clients.map((c) => c.market).filter(Boolean)),
+    ].sort();
+    const idx = list.findIndex((m) => normMarket(m) === "дордой-фуд");
+    if (idx > 0) return [list[idx], ...list.filter((_, i) => i !== idx)];
+    return list;
+  }, [clients]);
 
   const initialClient = clients.find((c) => c.name === defaultClient);
-  const [market, setMarket] = useState(initialClient?.market || markets[0] || "");
+  const [market, setMarket] = useState(
+    initialClient?.market || markets[0] || "",
+  );
   const [client, setClient] = useState(defaultClient || "");
-  const [deliveryDate, setDeliveryDate] = useState(tomorrowString());
+  const [deliveryDate, setDeliveryDate] = useState(todayString());
   const [items, setItems] = useState({}); // product -> {qty, comment}
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
@@ -48,11 +62,14 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
   // показываем по алфавиту сверху, весовые — как есть, снизу.
   const isWeighted = (p) =>
     Number(p?.ownBoxPrice || 0) > 0 ||
-    (Number(p?.ownBoxPriceWhite || 0) > 0 && Number(p?.ownBoxPriceDark || 0) > 0);
+    (Number(p?.ownBoxPriceWhite || 0) > 0 &&
+      Number(p?.ownBoxPriceDark || 0) > 0);
 
   const shownProducts = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const filtered = prices.filter((p) => !q || String(p.product).toLowerCase().includes(q));
+    const filtered = prices.filter(
+      (p) => !q || String(p.product).toLowerCase().includes(q),
+    );
     const boxed = filtered
       .filter((p) => !isWeighted(p))
       .sort((a, b) => String(a.product).localeCompare(String(b.product), "ru"));
@@ -63,7 +80,10 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
   const setQty = (product, qty) =>
     setItems((prev) => ({
       ...prev,
-      [product]: { ...(prev[product] || { comment: "", oldBox: false }), qty: Math.max(0, qty) },
+      [product]: {
+        ...(prev[product] || { comment: "", oldBox: false }),
+        qty: Math.max(0, qty),
+      },
     }));
 
   const setQtyColor = (product, color, qty) =>
@@ -94,7 +114,9 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
   // для них при выборе "старая коробка" вводится кол-во отдельно для
   // каждого цвета, каждое по своей цене.
   const canColorSplit = (row) =>
-    !!row && Number(row.ownBoxPriceWhite || 0) > 0 && Number(row.ownBoxPriceDark || 0) > 0;
+    !!row &&
+    Number(row.ownBoxPriceWhite || 0) > 0 &&
+    Number(row.ownBoxPriceDark || 0) > 0;
 
   // Цена товара с учётом "своей тары" (клиент забирает без нашей
   // коробки — обычно чуть дешевле). Применимо только к товарам, у
@@ -121,7 +143,8 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
         const qw = Number(it.qtyWhite || 0);
         const qd = Number(it.qtyDark || 0);
         boxes += qw + qd;
-        sum += qw * Number(row.ownBoxPriceWhite) + qd * Number(row.ownBoxPriceDark);
+        sum +=
+          qw * Number(row.ownBoxPriceWhite) + qd * Number(row.ownBoxPriceDark);
         return;
       }
       const qty = Number(it?.qty || 0);
@@ -210,9 +233,18 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
         <>
           <div style={{ marginRight: "auto", fontSize: 13 }}>
             <span style={{ color: "var(--muted)" }}>Коробок: </span>
-            <b style={{ fontFamily: "JetBrains Mono,monospace" }}>{totals.boxes}</b>
-            <span style={{ color: "var(--muted)", marginLeft: 14 }}>Сумма: </span>
-            <b style={{ fontFamily: "JetBrains Mono,monospace", color: "var(--green)" }}>
+            <b style={{ fontFamily: "JetBrains Mono,monospace" }}>
+              {totals.boxes}
+            </b>
+            <span style={{ color: "var(--muted)", marginLeft: 14 }}>
+              Сумма:{" "}
+            </span>
+            <b
+              style={{
+                fontFamily: "JetBrains Mono,monospace",
+                color: "var(--green)",
+              }}
+            >
               {fmtM(totals.sum)}
             </b>
           </div>
@@ -265,7 +297,9 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
 
       <div>
         {shownProducts.length === 0 && (
-          <div style={{ padding: 20, textAlign: "center", color: "var(--muted)" }}>
+          <div
+            style={{ padding: 20, textAlign: "center", color: "var(--muted)" }}
+          >
             Товар не найден
           </div>
         )}
@@ -295,7 +329,9 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <ProductThumb src={p.image} size={34} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>{p.product}</div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>
+                    {p.product}
+                  </div>
                   <div style={{ fontSize: 12, color: "var(--muted)" }}>
                     {splitActive
                       ? `бел. ${withPerKg(p, p.ownBoxPriceWhite)} · тём. ${withPerKg(p, p.ownBoxPriceDark)}`
@@ -313,7 +349,9 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
                     onClick={() => toggleOldBox(p.product)}
                     title={`Клиент забирает в своей таре — цена ${p.ownBoxPrice} сом вместо ${p.price} сом`}
                     style={{
-                      background: it.oldBox ? "rgba(210,153,34,0.15)" : "var(--s1)",
+                      background: it.oldBox
+                        ? "rgba(210,153,34,0.15)"
+                        : "var(--s1)",
                       border: `1px solid ${it.oldBox ? "#d29922" : "var(--b1)"}`,
                       borderRadius: 7,
                       padding: "5px 8px",
@@ -329,14 +367,23 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
                 )}
 
                 {!splitActive && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                    <Btn size="sm" variant="ghost" onClick={() => setQty(p.product, qty - 1)}>
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 5 }}
+                  >
+                    <Btn
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setQty(p.product, qty - 1)}
+                    >
                       −
                     </Btn>
                     <input
                       value={qty || ""}
                       onChange={(e) =>
-                        setQty(p.product, parseInt(e.target.value.replace(/\D/g, "")) || 0)
+                        setQty(
+                          p.product,
+                          parseInt(e.target.value.replace(/\D/g, "")) || 0,
+                        )
                       }
                       placeholder="0"
                       style={{
@@ -352,7 +399,11 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
                         outline: "none",
                       }}
                     />
-                    <Btn size="sm" variant="green" onClick={() => setQty(p.product, qty + 1)}>
+                    <Btn
+                      size="sm"
+                      variant="green"
+                      onClick={() => setQty(p.product, qty + 1)}
+                    >
                       +
                     </Btn>
                   </div>
@@ -360,12 +411,21 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
               </div>
 
               {canSplit && (rawQty > 0 || it.oldBox) && (
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    marginTop: 8,
+                  }}
+                >
                   <button
                     onClick={() => toggleOldBox(p.product)}
                     title="Клиент забирает в своей таре — указать отдельно белого и тёмного"
                     style={{
-                      background: it.oldBox ? "rgba(210,153,34,0.15)" : "var(--s1)",
+                      background: it.oldBox
+                        ? "rgba(210,153,34,0.15)"
+                        : "var(--s1)",
                       border: `1px solid ${it.oldBox ? "#d29922" : "var(--b1)"}`,
                       borderRadius: 7,
                       padding: "5px 8px",
@@ -381,15 +441,33 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
 
                   {splitActive && (
                     <>
-                      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                        <span style={{ fontSize: 11.5, color: "var(--muted)" }}>белый</span>
-                        <Btn size="sm" variant="ghost" onClick={() => setQtyColor(p.product, "white", qtyWhite - 1)}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                        }}
+                      >
+                        <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                          белый
+                        </span>
+                        <Btn
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            setQtyColor(p.product, "white", qtyWhite - 1)
+                          }
+                        >
                           −
                         </Btn>
                         <input
                           value={qtyWhite || ""}
                           onChange={(e) =>
-                            setQtyColor(p.product, "white", parseInt(e.target.value.replace(/\D/g, "")) || 0)
+                            setQtyColor(
+                              p.product,
+                              "white",
+                              parseInt(e.target.value.replace(/\D/g, "")) || 0,
+                            )
                           }
                           placeholder="0"
                           style={{
@@ -405,19 +483,43 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
                             outline: "none",
                           }}
                         />
-                        <Btn size="sm" variant="green" onClick={() => setQtyColor(p.product, "white", qtyWhite + 1)}>
+                        <Btn
+                          size="sm"
+                          variant="green"
+                          onClick={() =>
+                            setQtyColor(p.product, "white", qtyWhite + 1)
+                          }
+                        >
                           +
                         </Btn>
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                        <span style={{ fontSize: 11.5, color: "var(--muted)" }}>тёмный</span>
-                        <Btn size="sm" variant="ghost" onClick={() => setQtyColor(p.product, "dark", qtyDark - 1)}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                        }}
+                      >
+                        <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                          тёмный
+                        </span>
+                        <Btn
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            setQtyColor(p.product, "dark", qtyDark - 1)
+                          }
+                        >
                           −
                         </Btn>
                         <input
                           value={qtyDark || ""}
                           onChange={(e) =>
-                            setQtyColor(p.product, "dark", parseInt(e.target.value.replace(/\D/g, "")) || 0)
+                            setQtyColor(
+                              p.product,
+                              "dark",
+                              parseInt(e.target.value.replace(/\D/g, "")) || 0,
+                            )
                           }
                           placeholder="0"
                           style={{
@@ -433,7 +535,13 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
                             outline: "none",
                           }}
                         />
-                        <Btn size="sm" variant="green" onClick={() => setQtyColor(p.product, "dark", qtyDark + 1)}>
+                        <Btn
+                          size="sm"
+                          variant="green"
+                          onClick={() =>
+                            setQtyColor(p.product, "dark", qtyDark + 1)
+                          }
+                        >
                           +
                         </Btn>
                       </div>
