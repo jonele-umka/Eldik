@@ -129,18 +129,21 @@ export const parseDate = (s) => {
   return p.length === 3 ? new Date(`${p[2]}-${p[1]}-${p[0]}`).getTime() : 0;
 };
 
-// Распределяет "непривязанные" прямые оплаты и взаимозачёты клиента
-// по его заказам — от старых к новым (старый долг гасится первым).
-// Нужно, чтобы статус оплаты заказа совпадал на всех страницах,
-// даже если оплата была внесена без привязки к конкретному заказу
-// (кнопка "Внести оплату" на карточке клиента/должника).
+// Распределяет "непривязанные" прямые оплаты и взаимозачёты клиента по
+// его долгам (заказы + нач. остаток) — от старых к новым, но строго по
+// датам: оплата гасит только те долги, которые УЖЕ существовали на
+// момент этой оплаты. Нужно, чтобы статус оплаты заказа совпадал на
+// всех страницах, даже если оплата была внесена без привязки к
+// конкретному заказу (кнопка "Внести оплату" на карточке клиента/должника).
 //
-// Приоритет гашения: СНАЧАЛА заказы (от старого к новому), и только
-// то, что осталось сверх — уходит в начальный остаток. Так и работает
-// на практике: клиент платит за конкретную (обычно недавнюю) поставку,
-// эта поставка/заказ закрывается полностью, а излишек уменьшает старый
-// долг. Если оплата ровно по сумме заказа — весь заказ просто оплачен,
-// нач. остаток не трогается.
+// Раньше было проще: сначала гасились ВСЕ текущие заказы (от старого к
+// новому), и только остаток уходил в нач. остаток. Из-за этого уже
+// улёгшийся излишек (ушедший в нач. остаток) при появлении НОВОГО
+// заказа задним числом пересчитывался и "перетягивался" на этот новый
+// заказ — хотя оплата была внесена раньше, чем заказ вообще появился.
+// Пример: заказ на 79500, оплатили 100000 — 79500 закрывает заказ,
+// 20500 уходит в нач. остаток. Появляется второй заказ — эти 20500 не
+// должны никуда переезжать, они уже "потрачены" на нач. остаток.
 //
 // Возвращает { groups, openingRemainingByClient } — groups мутируется
 // на месте (как и раньше), поэтому старые вызовы, игнорирующие
@@ -159,29 +162,40 @@ export function distributeClientCredits(
   const arrO = Array.isArray(offsets) ? offsets : [];
   const arrOB = Array.isArray(openingBalances) ? openingBalances : [];
 
-  const unassignedPayByClient = {};
+  // Каждая непривязанная оплата/зачёт — своей записью со своей датой
+  // (а не одной суммой на клиента), чтобы её нельзя было применить к
+  // долгу, которого на тот момент ещё не было.
+  const creditsByClient = {};
+  const pushCredit = (key, amount, date, isOffset) => {
+    if (!key || !(amount > 0)) return;
+    if (!creditsByClient[key]) creditsByClient[key] = [];
+    creditsByClient[key].push({ amount, date: parseDate(date) || 0, isOffset });
+  };
   arrP.forEach((p) => {
     const orderId = String(p.orderId || "").trim();
     if (orderId) return; // уже учтено бэкендом в paidAmount заказа
-    const key = norm(p.client);
-    if (!key) return;
-    unassignedPayByClient[key] =
-      (unassignedPayByClient[key] || 0) + Number(p.amount || 0);
+    // У оплаты дата лежит в paymentDate (а не date, как у заказа/зачёта/
+    // нач. остатка) — раньше здесь было p.date, которого на объекте
+    // оплаты не существует, поэтому дата "терялась" (uходила в 0 —
+    // раньше вообще всех долгов) и оплата просто нигде не засчитывалась:
+    // ни заказ, ни нач. остаток не уменьшались, хотя оплата числилась
+    // внесённой.
+    pushCredit(norm(p.client), Number(p.amount || 0), p.paymentDate, false);
   });
-
-  const offsetByClient = {};
   arrO.forEach((o) => {
-    const key = norm(o.client);
-    if (!key) return;
-    offsetByClient[key] = (offsetByClient[key] || 0) + Number(o.amount || 0);
+    pushCredit(norm(o.client), Number(o.amount || 0), o.date, true);
   });
 
   const openingByClient = {};
+  const openingDateByClient = {};
   arrOB.forEach((o) => {
     if (o.type && o.type !== "client") return;
     const key = norm(o.name || o.client);
     if (!key) return;
     openingByClient[key] = (openingByClient[key] || 0) + Number(o.amount || 0);
+    const d = parseDate(o.date) || 0;
+    openingDateByClient[key] =
+      key in openingDateByClient ? Math.min(openingDateByClient[key], d) : d;
   });
 
   const byClient = {};
@@ -199,40 +213,75 @@ export function distributeClientCredits(
   const allClientKeys = new Set([
     ...Object.keys(byClient),
     ...Object.keys(openingByClient),
+    ...Object.keys(creditsByClient),
   ]);
 
   allClientKeys.forEach((key) => {
-    let remainingCredit =
-      (unassignedPayByClient[key] || 0) + (offsetByClient[key] || 0);
-    let remainingOffset = offsetByClient[key] || 0;
+    const openingDebt = openingByClient[key] || 0;
 
-    // 1) Сначала гасим заказы, от старого к новому.
-    const clientGroups = [...(byClient[key] || [])].sort(
-      (a, b) => parseDate(a.orderDate) - parseDate(b.orderDate),
+    // Долги клиента — заказы (от старого к новому) и нач. остаток. Внутри
+    // заказов сортируем по дате, но заказы как группа всегда идут ПЕРЕД
+    // нач. остатком (а не по чистой дате долга) — нач. остаток почти
+    // всегда старше самих заказов по дате, а приоритет тут другой: клиент
+    // платит за конкретную (обычно недавнюю) поставку, она закрывается
+    // полностью, и только излишек уменьшает старый долг.
+    const debts = (byClient[key] || [])
+      .slice()
+      .sort((a, b) => parseDate(a.orderDate) - parseDate(b.orderDate))
+      .map((g) => ({
+        kind: "order",
+        date: parseDate(g.orderDate) || 0,
+        group: g,
+        remaining: Math.max(
+          0,
+          Number(g.totalSum || 0) -
+            Number(g.returnedAmount || 0) -
+            Number(g.paidAmount || 0),
+        ),
+      }));
+    if (openingDebt > 0) {
+      debts.push({
+        kind: "opening",
+        date: openingDateByClient[key] || 0,
+        remaining: openingDebt,
+      });
+    }
+    debts.sort((a, b) =>
+      a.kind !== b.kind ? (a.kind === "order" ? -1 : 1) : a.date - b.date,
     );
 
-    clientGroups.forEach((g) => {
-      const effectiveTotal = Math.max(
-        0,
-        Number(g.totalSum || 0) - Number(g.returnedAmount || 0),
-      );
-      const alreadyPaid = Number(g.paidAmount || 0);
-      const remainingDebt = Math.max(0, effectiveTotal - alreadyPaid);
-      const applied = Math.min(remainingCredit, remainingDebt);
-      const offsetApplied = Math.min(remainingOffset, applied);
+    // Оплаты/зачёты — от старой к новой. Каждая гасит долги, которые
+    // существовали НА МОМЕНТ этой оплаты (или раньше) — заказ, оформленный
+    // позже, более ранней оплатой закрыт быть не может.
+    const credits = (creditsByClient[key] || [])
+      .slice()
+      .sort((a, b) => a.date - b.date);
 
-      remainingCredit -= applied;
-      remainingOffset -= offsetApplied;
-
-      g.offsetAmount = (g.offsetAmount || 0) + offsetApplied;
-      g.totalPaidAmount = alreadyPaid + applied;
+    credits.forEach((credit) => {
+      let remaining = credit.amount;
+      for (const item of debts) {
+        if (remaining <= 0) break;
+        if (item.date > credit.date) continue;
+        if (item.remaining <= 0) continue;
+        const applied = Math.min(remaining, item.remaining);
+        item.remaining -= applied;
+        remaining -= applied;
+        if (item.kind === "order") {
+          const g = item.group;
+          g.totalPaidAmount =
+            (g.totalPaidAmount ?? Number(g.paidAmount || 0)) + applied;
+          if (credit.isOffset) g.offsetAmount = (g.offsetAmount || 0) + applied;
+        }
+      }
+      // Остаток (если оплата больше вообще всех долгов, существовавших
+      // на тот момент) намеренно никуда не переносится — не должен
+      // задним числом закрывать заказ, оформленный уже после оплаты.
     });
 
-    // 2) То, что осталось сверх всех заказов — уменьшает нач. остаток.
-    const openingDebt = openingByClient[key] || 0;
-    const appliedToOpening = Math.min(remainingCredit, openingDebt);
-    remainingCredit -= appliedToOpening;
-    openingRemainingByClient[key] = Math.max(0, openingDebt - appliedToOpening);
+    const openingItem = debts.find((d) => d.kind === "opening");
+    openingRemainingByClient[key] = openingItem
+      ? openingItem.remaining
+      : Math.max(0, openingDebt);
   });
 
   return { groups, openingRemainingByClient };

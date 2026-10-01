@@ -1,6 +1,6 @@
 // Карточка заказа со всем функционалом мобильного orderDetail:
 // правка состава, статус, оплаты, возвраты, удаление, печать накладной.
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Modal,
   Btn,
@@ -21,6 +21,8 @@ import {
   deletePayment,
   savePayment,
   saveReturn,
+  setNotFit,
+  setStockOut,
   updateOrder,
   updateOrderHeader,
   updatePayment,
@@ -30,7 +32,63 @@ import { priceOf } from "../utils/promo.js";
 import { fmtM } from "../utils/index.js";
 import { printInvoice } from "../utils/invoice.js";
 
-const norm = (s) => String(s || "").trim().toLowerCase();
+const norm = (s) =>
+  String(s || "")
+    .trim()
+    .toLowerCase();
+
+// Общий компактный ввод количества для отметок "не хватает"/"не
+// поместилось" — прямо в заказе, чтобы не бегать на страницу
+// Производство, если нужно снять отметку (например, товар на самом деле
+// есть/увезли, отметили по ошибке) или поправить количество.
+function QtyQuickEditor({ qty, busy, onSave, clearLabel }) {
+  const [val, setVal] = useState(String(qty || ""));
+  useEffect(() => setVal(String(qty || "")), [qty]);
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        flexWrap: "wrap",
+      }}
+    >
+      <input
+        type="number"
+        min="0"
+        inputMode="numeric"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") onSave(Math.max(0, parseInt(val, 10) || 0));
+        }}
+        style={{
+          width: 52,
+          textAlign: "center",
+          background: "var(--s1)",
+          border: "1px solid var(--b1)",
+          borderRadius: 7,
+          color: "var(--text)",
+          padding: "3px 4px",
+          fontFamily: "JetBrains Mono, monospace",
+          fontSize: 12,
+        }}
+      />
+      <Btn
+        size="sm"
+        variant="ghost"
+        loading={busy}
+        onClick={() => onSave(Math.max(0, parseInt(val, 10) || 0))}
+      >
+        Обновить
+      </Btn>
+      <Btn size="sm" variant="ghost" loading={busy} onClick={() => onSave(0)}>
+        {clearLabel}
+      </Btn>
+    </div>
+  );
+}
 
 export default function OrderDetailModal({ group, onClose }) {
   const { data, mutate, refresh } = useData();
@@ -41,21 +99,38 @@ export default function OrderDetailModal({ group, onClose }) {
   const allPayments = Array.isArray(data.payments) ? data.payments : [];
   const allReturns = Array.isArray(data.returns) ? data.returns : [];
   const allStockOuts = Array.isArray(data.stockOuts) ? data.stockOuts : [];
+  const allNotFits = Array.isArray(data.notFits) ? data.notFits : [];
 
-  // key "дата доставки::товар" -> сколько не хватает (шт) — та же
-  // отметка, что и на странице производства/развозки.
+  // key "ID заказа::товар" -> сколько не хватает (шт) — та же отметка, что
+  // и на странице развозки. Привязана к КОНКРЕТНОМУ заказу, а не просто
+  // к дате+товару, чтобы разных клиентов с одним товаром на одну дату
+  // доставки не путать.
   const stockOutMap = useMemo(() => {
     const m = new Map();
     allStockOuts.forEach((r) => {
-      if (r.date && r.product && Number(r.qty) > 0)
-        m.set(`${r.date}::${r.product}`, Number(r.qty));
+      if (r.orderId && r.product && Number(r.qty) > 0)
+        m.set(`${r.orderId}::${r.product}`, Number(r.qty));
     });
     return m;
   }, [allStockOuts]);
 
+  // Отдельная отметка "не поместилось" (товар был в наличии, но физически
+  // не увезли в развозке — машина/место закончилось) — независимая от
+  // "не хватает", свой лист и свой ключ, чтобы не путать причины.
+  const notFitMap = useMemo(() => {
+    const m = new Map();
+    allNotFits.forEach((r) => {
+      if (r.orderId && r.product && Number(r.qty) > 0)
+        m.set(`${r.orderId}::${r.product}`, Number(r.qty));
+    });
+    return m;
+  }, [allNotFits]);
+
   const [market, setMarket] = useState(group.market || "");
   const [client, setClient] = useState(group.client || "");
-  const [orderDate, setOrderDate] = useState((group.orderDate || "").split(" ")[0]);
+  const [orderDate, setOrderDate] = useState(
+    (group.orderDate || "").split(" ")[0],
+  );
   const [deliveryDate, setDeliveryDate] = useState(
     (group.deliveryDate || "").split(" ")[0],
   );
@@ -71,6 +146,8 @@ export default function OrderDetailModal({ group, onClose }) {
     })),
   );
   const [busy, setBusy] = useState(false);
+  const [stockOutBusy, setStockOutBusy] = useState(() => new Set());
+  const [notFitBusy, setNotFitBusy] = useState(() => new Set());
 
   // Снимок исходных значений на момент открытия — чтобы при сохранении
   // отправлять на бэкенд только то, что реально поменяли, а не всё подряд.
@@ -119,7 +196,8 @@ export default function OrderDetailModal({ group, onClose }) {
   // (с ценой "своя тара") — как есть, снизу.
   const isWeightedProduct = (p) =>
     Number(p?.ownBoxPrice || 0) > 0 ||
-    (Number(p?.ownBoxPriceWhite || 0) > 0 && Number(p?.ownBoxPriceDark || 0) > 0);
+    (Number(p?.ownBoxPriceWhite || 0) > 0 &&
+      Number(p?.ownBoxPriceDark || 0) > 0);
   const sortedProducts = useMemo(() => {
     const boxed = prices
       .filter((p) => !isWeightedProduct(p))
@@ -133,7 +211,11 @@ export default function OrderDetailModal({ group, onClose }) {
   // товара задана ownBoxPrice).
   const priceForRow = (row) => {
     const catalogRow = priceRowOf(row.product);
-    if (row.oldBox && canColorSplit(catalogRow) && row.oldBoxColor === "white") {
+    if (
+      row.oldBox &&
+      canColorSplit(catalogRow) &&
+      row.oldBoxColor === "white"
+    ) {
       return Number(catalogRow.ownBoxPriceWhite);
     }
     if (row.oldBox && canColorSplit(catalogRow) && row.oldBoxColor === "dark") {
@@ -147,7 +229,9 @@ export default function OrderDetailModal({ group, onClose }) {
 
   // Товары, у которых старая коробка делится по цвету (белый/тёмный).
   const canColorSplit = (row) =>
-    !!row && Number(row.ownBoxPriceWhite || 0) > 0 && Number(row.ownBoxPriceDark || 0) > 0;
+    !!row &&
+    Number(row.ownBoxPriceWhite || 0) > 0 &&
+    Number(row.ownBoxPriceDark || 0) > 0;
 
   const orderPayments = useMemo(
     () =>
@@ -175,27 +259,67 @@ export default function OrderDetailModal({ group, onClose }) {
   );
 
   // Сколько не хватает по каждой строке (та же отметка, что и на
-  // производстве/развозке) — недостающие штуки не должны входить в
-  // сумму чека и долг клиента.
+  // странице развозки, привязана к ЭТОМУ заказу) — недостающие штуки не
+  // должны входить в сумму чека и долг клиента.
   const missingQtyFor = (row) => {
-    if (!deliveryDate || !row.product) return 0;
+    if (!row.product) return 0;
     const qty = Number(row.quantity) || 0;
-    const missing = Number(stockOutMap.get(`${deliveryDate}::${row.product}`) || 0);
+    const missing = Number(
+      stockOutMap.get(`${group.oid}::${row.product}`) || 0,
+    );
     return Math.min(qty, missing);
+  };
+  // "Не поместилось" — товар БЫЛ в наличии, но физически не увезли
+  // (место в развозке закончилось); отдельная отметка от "не хватает",
+  // но тоже не должна входить в сумму чека. Урезаем остатком строки ПОСЛЕ
+  // вычета "не хватает", чтобы вместе они не вычли больше самой строки.
+  const notFitQtyFor = (row) => {
+    if (!row.product) return 0;
+    const qty = Number(row.quantity) || 0;
+    const remaining = Math.max(0, qty - missingQtyFor(row));
+    const notFit = Number(notFitMap.get(`${group.oid}::${row.product}`) || 0);
+    return Math.min(remaining, notFit);
   };
   const stockOutDeduction = rows.reduce(
     (s, r) => s + missingQtyFor(r) * priceForRow(r),
     0,
   );
+  const notFitDeduction = rows.reduce(
+    (s, r) => s + notFitQtyFor(r) * priceForRow(r),
+    0,
+  );
 
-  const paidAmount = orderPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
+  // Оплаты, прямо привязанные к этому заказу (оплачено прямо тут, в
+  // карточке заказа) — всегда закрывают именно его, их сумма видна ниже
+  // списком. Но есть ещё "непривязанные" оплаты/взаимозачёты клиента
+  // (внесённые на странице клиента/должников без выбора заказа) —
+  // distributeClientCredits уже распределил их по заказам клиента (от
+  // старых к новым) и остатку, и записал итог в group.totalPaidAmount.
+  // Раньше здесь учитывались только привязанные платежи напрямую, из-за
+  // чего заказ, уже закрытый такой непривязанной оплатой, здесь всё
+  // равно показывался неоплаченным — хотя на странице клиента и в
+  // Должниках уже числился закрытым.
+  const linkedPaidAmount = orderPayments.reduce(
+    (s, p) => s + Number(p.amount || 0),
+    0,
+  );
+  const paidAmount =
+    group.totalPaidAmount !== undefined
+      ? Number(group.totalPaidAmount || 0)
+      : linkedPaidAmount;
+  const unassignedPaidAmount = Math.max(0, paidAmount - linkedPaidAmount);
   const returnedAmount = Number(group.returnedAmount || 0);
-  const netSum = Math.max(0, totalSum - returnedAmount - stockOutDeduction);
+  const netSum = Math.max(
+    0,
+    totalSum - returnedAmount - stockOutDeduction - notFitDeduction,
+  );
   const debt = Math.max(0, netSum - paidAmount);
 
   /* ─── состав заказа ─── */
   const setRow = (i, patch) =>
-    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+    setRows((prev) =>
+      prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)),
+    );
 
   const handleRemoveRow = (i) => {
     const row = rows[i];
@@ -242,8 +366,56 @@ export default function OrderDetailModal({ group, onClose }) {
     setAddProduct("");
   };
 
+  // Снять/поправить отметку "нет в наличии" прямо здесь, не уходя на
+  // страницу Развозка — привязана к ID ЭТОГО заказа, так что не задевает
+  // другие заказы с тем же товаром на ту же дату.
+  const handleSetStockOut = async (product, qty) => {
+    const key = `${group.oid}::${product}`;
+    setStockOutBusy((prev) => new Set(prev).add(key));
+    try {
+      await mutate(() => setStockOut(group.oid, product, qty), ["stockOuts"]);
+      toast(
+        qty > 0
+          ? `Не хватает: ${qty} шт`
+          : "Отметка снята — товар снова в наличии",
+        "ok",
+      );
+    } catch (e) {
+      toast(e.message, "err");
+    } finally {
+      setStockOutBusy((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  };
+
+  // То же самое, но для отметки "не поместилось" — свой ключ в сторе
+  // ("notFits"), чтобы не задевать "не хватает".
+  const handleSetNotFit = async (product, qty) => {
+    const key = `${group.oid}::${product}`;
+    setNotFitBusy((prev) => new Set(prev).add(key));
+    try {
+      await mutate(() => setNotFit(group.oid, product, qty), ["notFits"]);
+      toast(
+        qty > 0 ? `Не поместилось: ${qty} шт` : "Отметка снята — увезли",
+        "ok",
+      );
+    } catch (e) {
+      toast(e.message, "err");
+    } finally {
+      setNotFitBusy((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  };
+
   const handleSaveChanges = async () => {
-    if (!rows.length) return toast("В заказе должен быть хотя бы один товар", "err");
+    if (!rows.length)
+      return toast("В заказе должен быть хотя бы один товар", "err");
 
     const initHeader = initialHeaderRef.current;
     const headerChanged =
@@ -367,11 +539,10 @@ export default function OrderDetailModal({ group, onClose }) {
       onConfirm: async () => {
         try {
           setBusy(true);
-          await mutate(() => deleteOrder(group.oid), [
-            ...AFFECTS.order,
-            "payments",
-            "returns",
-          ]);
+          await mutate(
+            () => deleteOrder(group.oid),
+            [...AFFECTS.order, "payments", "returns"],
+          );
           toast("Заказ удалён", "ok");
           onClose();
         } catch (e) {
@@ -461,7 +632,10 @@ export default function OrderDetailModal({ group, onClose }) {
     const bought = Number(row?.quantity || 0);
     const already = returnedByProduct[retProduct] || 0;
     if (qty > bought - already)
-      return toast(`Можно вернуть не более ${Math.max(0, bought - already)} шт`, "err");
+      return toast(
+        `Можно вернуть не более ${Math.max(0, bought - already)} шт`,
+        "err",
+      );
 
     try {
       setBusy(true);
@@ -512,21 +686,38 @@ export default function OrderDetailModal({ group, onClose }) {
       subtitle={`${group.market} · создан ${group.orderDate || "—"}`}
       footer={
         <>
-          <Btn variant="danger" onClick={handleDeleteOrder} disabled={busy} style={{ marginRight: "auto" }}>
+          <Btn
+            variant="danger"
+            onClick={handleDeleteOrder}
+            disabled={busy}
+            style={{ marginRight: "auto" }}
+          >
             🗑 Удалить заказ
           </Btn>
           <Btn
             variant="ghost"
             onClick={() =>
               printInvoice({
-                order: { ...group, market, client, deliveryDate, orderDate, status },
+                order: {
+                  ...group,
+                  market,
+                  client,
+                  deliveryDate,
+                  orderDate,
+                  status,
+                },
                 // В накладную идёт фактически доступное количество — то,
                 // чего не хватает, вычитаем, чтобы сумма к оплате не
                 // включала товар, которого реально нет.
                 rows: rows.map((r) => ({
                   ...r,
                   quantity: String(
-                    Math.max(0, (Number(r.quantity) || 0) - missingQtyFor(r)),
+                    Math.max(
+                      0,
+                      (Number(r.quantity) || 0) -
+                        missingQtyFor(r) -
+                        notFitQtyFor(r),
+                    ),
                   ),
                 })),
                 priceOfRow: (r) => priceForRow(r),
@@ -560,6 +751,9 @@ export default function OrderDetailModal({ group, onClose }) {
           ...(stockOutDeduction > 0
             ? [["Недостача", fmtM(stockOutDeduction), "var(--red)"]]
             : []),
+          ...(notFitDeduction > 0
+            ? [["Не поместилось", fmtM(notFitDeduction), "var(--purple)"]]
+            : []),
           ["Остаток", fmtM(debt), debt > 0 ? "var(--red)" : "var(--green)"],
         ].map(([l, v, c]) => (
           <div
@@ -571,7 +765,13 @@ export default function OrderDetailModal({ group, onClose }) {
               padding: "9px 11px",
             }}
           >
-            <div style={{ fontSize: 10.5, color: "var(--muted)", textTransform: "uppercase" }}>
+            <div
+              style={{
+                fontSize: 10.5,
+                color: "var(--muted)",
+                textTransform: "uppercase",
+              }}
+            >
               {l}
             </div>
             <div
@@ -610,7 +810,12 @@ export default function OrderDetailModal({ group, onClose }) {
           />
         </Field>
         <Field label="Клиент">
-          <SelectField value={client} onChange={setClient} options={marketClients} placeholder="—" />
+          <SelectField
+            value={client}
+            onChange={setClient}
+            options={marketClients}
+            placeholder="—"
+          />
         </Field>
         <Field label="Дата заявки">
           <DateField value={orderDate} onChange={setOrderDate} />
@@ -651,21 +856,40 @@ export default function OrderDetailModal({ group, onClose }) {
         const canOldBox = Number(catalogRow?.ownBoxPrice || 0) > 0 || canSplit;
         const price = priceForRow(r);
         const missingQty = missingQtyFor(r);
+        const notFitQty = notFitQtyFor(r);
         const isOut = missingQty > 0;
+        const isNotFit = notFitQty > 0;
         const isFullyOut = isOut && missingQty >= qty;
-        const availableQty = Math.max(0, qty - missingQty);
+        const availableQty = Math.max(0, qty - missingQty - notFitQty);
+        const rowBorderColor = isOut
+          ? "rgba(248,81,73,0.4)"
+          : isNotFit
+            ? "rgba(163,113,247,0.4)"
+            : "var(--b1)";
+        const rowBg = isOut
+          ? "rgba(248,81,73,.06)"
+          : isNotFit
+            ? "rgba(163,113,247,.06)"
+            : "var(--s2)";
         return (
           <div
             key={r.id || r.product}
             style={{
-              border: `1px solid ${isOut ? "rgba(248,81,73,0.4)" : "var(--b1)"}`,
-              background: isOut ? "rgba(248,81,73,.06)" : "var(--s2)",
+              border: `1px solid ${rowBorderColor}`,
+              background: rowBg,
               borderRadius: 10,
               padding: "10px 12px",
               marginBottom: 8,
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                flexWrap: "wrap",
+              }}
+            >
               <ProductThumb src={catalogRow?.image} size={32} />
               <div style={{ flex: 1, minWidth: 140 }}>
                 <div
@@ -679,21 +903,33 @@ export default function OrderDetailModal({ group, onClose }) {
                 </div>
                 <div style={{ fontSize: 12, color: "var(--muted)" }}>
                   {price} сом / шт
-                  {r.oldBox && canSplit && Number(catalogRow?.weight || 0) > 0 && (
-                    <span style={{ color: "var(--muted)" }}>
-                      {" "}
-                      ({Math.round(price / Number(catalogRow.weight))} сом/кг)
-                    </span>
-                  )}
+                  {r.oldBox &&
+                    canSplit &&
+                    Number(catalogRow?.weight || 0) > 0 && (
+                      <span style={{ color: "var(--muted)" }}>
+                        {" "}
+                        ({Math.round(price / Number(catalogRow.weight))} сом/кг)
+                      </span>
+                    )}
                   {r.oldBox && canOldBox && (
                     <span style={{ color: "#d29922", marginLeft: 6 }}>
                       📦 старая коробка
-                      {canSplit && r.oldBoxColor && (r.oldBoxColor === "white" ? " · белый" : " · тёмный")}
+                      {canSplit &&
+                        r.oldBoxColor &&
+                        (r.oldBoxColor === "white" ? " · белый" : " · тёмный")}
                     </span>
                   )}
                 </div>
                 {isOut && (
-                  <div style={{ marginTop: 3 }}>
+                  <div
+                    style={{
+                      marginTop: 4,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      flexWrap: "wrap",
+                    }}
+                  >
                     <span
                       style={{
                         display: "inline-flex",
@@ -708,8 +944,50 @@ export default function OrderDetailModal({ group, onClose }) {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {isFullyOut ? "🚫 нет в наличии" : `🚫 не хватает: ${missingQty}`}
+                      {isFullyOut
+                        ? "🚫 нет в наличии"
+                        : `🚫 не хватает: ${missingQty}`}
                     </span>
+                    <QtyQuickEditor
+                      qty={missingQty}
+                      busy={stockOutBusy.has(`${group.oid}::${r.product}`)}
+                      onSave={(n) => handleSetStockOut(r.product, n)}
+                      clearLabel="✕ уже есть"
+                    />
+                  </div>
+                )}
+                {isNotFit && (
+                  <div
+                    style={{
+                      marginTop: 4,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        padding: "2px 7px",
+                        borderRadius: 20,
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        background: "rgba(163,113,247,.14)",
+                        color: "var(--purple)",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      📦 не поместилось: {notFitQty}
+                    </span>
+                    <QtyQuickEditor
+                      qty={notFitQty}
+                      busy={notFitBusy.has(`${group.oid}::${r.product}`)}
+                      onSave={(n) => handleSetNotFit(r.product, n)}
+                      clearLabel="✕ увезли"
+                    />
                   </div>
                 )}
               </div>
@@ -719,7 +997,10 @@ export default function OrderDetailModal({ group, onClose }) {
                   onClick={() =>
                     setRow(i, {
                       oldBox: !r.oldBox,
-                      oldBoxColor: !r.oldBox && canSplit ? r.oldBoxColor || "white" : r.oldBoxColor,
+                      oldBoxColor:
+                        !r.oldBox && canSplit
+                          ? r.oldBoxColor || "white"
+                          : r.oldBoxColor,
                     })
                   }
                   title={
@@ -728,7 +1009,9 @@ export default function OrderDetailModal({ group, onClose }) {
                       : `Клиент забирает в своей таре — цена ${catalogRow.ownBoxPrice} сом вместо ${catalogRow.price} сом`
                   }
                   style={{
-                    background: r.oldBox ? "rgba(210,153,34,0.15)" : "var(--s1)",
+                    background: r.oldBox
+                      ? "rgba(210,153,34,0.15)"
+                      : "var(--s1)",
                     border: `1px solid ${r.oldBox ? "#d29922" : "var(--b1)"}`,
                     borderRadius: 7,
                     padding: "5px 8px",
@@ -753,11 +1036,15 @@ export default function OrderDetailModal({ group, onClose }) {
                       key={val}
                       onClick={() => setRow(i, { oldBoxColor: val })}
                       style={{
-                        background: r.oldBoxColor === val ? "rgba(210,153,34,0.2)" : "var(--s1)",
+                        background:
+                          r.oldBoxColor === val
+                            ? "rgba(210,153,34,0.2)"
+                            : "var(--s1)",
                         border: `1px solid ${r.oldBoxColor === val ? "#d29922" : "var(--b1)"}`,
                         borderRadius: 7,
                         padding: "5px 8px",
-                        color: r.oldBoxColor === val ? "#d29922" : "var(--muted)",
+                        color:
+                          r.oldBoxColor === val ? "#d29922" : "var(--muted)",
                         fontSize: 11,
                         fontWeight: 600,
                         cursor: "pointer",
@@ -772,7 +1059,9 @@ export default function OrderDetailModal({ group, onClose }) {
 
               <input
                 value={r.quantity}
-                onChange={(e) => setRow(i, { quantity: e.target.value.replace(/\D/g, "") })}
+                onChange={(e) =>
+                  setRow(i, { quantity: e.target.value.replace(/\D/g, "") })
+                }
                 style={{
                   width: 70,
                   textAlign: "center",
@@ -794,10 +1083,27 @@ export default function OrderDetailModal({ group, onClose }) {
                   textAlign: "right",
                 }}
               >
-                {isOut ? (
-                  <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.3 }}>
-                    <span style={{ color: "var(--red)" }}>{fmtM(availableQty * price)}</span>
-                    <span style={{ fontSize: 11, color: "var(--muted)", textDecoration: "line-through" }}>
+                {isOut || isNotFit ? (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      flexDirection: "column",
+                      alignItems: "flex-end",
+                      lineHeight: 1.3,
+                    }}
+                  >
+                    <span
+                      style={{ color: isOut ? "var(--red)" : "var(--purple)" }}
+                    >
+                      {fmtM(availableQty * price)}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        color: "var(--muted)",
+                        textDecoration: "line-through",
+                      }}
+                    >
                       {fmtM(qty * price)}
                     </span>
                   </span>
@@ -806,7 +1112,29 @@ export default function OrderDetailModal({ group, onClose }) {
                 )}
               </div>
 
-              <IconBtn title="Удалить" color="var(--red)" onClick={() => handleRemoveRow(i)}>
+              {!isOut && (
+                <IconBtn
+                  title="Отметить «нет в наличии / не хватает»"
+                  color="var(--red)"
+                  onClick={() => handleSetStockOut(r.product, qty)}
+                >
+                  🚫
+                </IconBtn>
+              )}
+              {!isNotFit && (
+                <IconBtn
+                  title="Отметить «не поместилось» (есть, но не увезли)"
+                  color="var(--purple)"
+                  onClick={() => handleSetNotFit(r.product, qty)}
+                >
+                  📦
+                </IconBtn>
+              )}
+              <IconBtn
+                title="Удалить"
+                color="var(--red)"
+                onClick={() => handleRemoveRow(i)}
+              >
                 ✕
               </IconBtn>
             </div>
@@ -823,6 +1151,23 @@ export default function OrderDetailModal({ group, onClose }) {
 
       {/* Оплаты */}
       {sectionTitle(`Оплаты по заказу (${orderPayments.length})`)}
+      {unassignedPaidAmount > 0 && (
+        <div
+          style={{
+            fontSize: 12.5,
+            color: "var(--muted)",
+            background: "rgba(63,185,80,.07)",
+            border: "1px solid rgba(63,185,80,.3)",
+            borderRadius: 9,
+            padding: "8px 11px",
+            marginBottom: 6,
+          }}
+        >
+          + {fmtM(unassignedPaidAmount)} закрыто оплатой, внесённой без привязки
+          к заказу (на странице клиента/должников) — она же видна в списке
+          "Платежи" клиента, а не здесь.
+        </div>
+      )}
       {orderPayments.map((p) => (
         <div
           key={p.id}
@@ -861,7 +1206,11 @@ export default function OrderDetailModal({ group, onClose }) {
           >
             ✏️
           </IconBtn>
-          <IconBtn title="Удалить" color="var(--red)" onClick={() => handleDeletePayment(p)}>
+          <IconBtn
+            title="Удалить"
+            color="var(--red)"
+            onClick={() => handleDeletePayment(p)}
+          >
             🗑
           </IconBtn>
         </div>
@@ -881,7 +1230,9 @@ export default function OrderDetailModal({ group, onClose }) {
               <Field label="Дата">
                 <DateField
                   value={editingPay.paymentDate}
-                  onChange={(v) => setEditingPay((s) => ({ ...s, paymentDate: v }))}
+                  onChange={(v) =>
+                    setEditingPay((s) => ({ ...s, paymentDate: v }))
+                  }
                 />
               </Field>
             </div>
@@ -890,7 +1241,9 @@ export default function OrderDetailModal({ group, onClose }) {
                 <TextInput
                   inputMode="numeric"
                   value={editingPay.amount}
-                  onChange={(e) => setEditingPay((s) => ({ ...s, amount: e.target.value }))}
+                  onChange={(e) =>
+                    setEditingPay((s) => ({ ...s, amount: e.target.value }))
+                  }
                 />
               </Field>
             </div>
@@ -905,7 +1258,14 @@ export default function OrderDetailModal({ group, onClose }) {
           </div>
         </div>
       ) : (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            alignItems: "flex-end",
+          }}
+        >
           <div style={{ flex: 1, minWidth: 130 }}>
             <Field label="Дата оплаты">
               <DateField value={payDate} onChange={setPayDate} />
@@ -921,7 +1281,12 @@ export default function OrderDetailModal({ group, onClose }) {
               />
             </Field>
           </div>
-          <Btn variant="green" onClick={handleAddPayment} loading={busy} style={{ marginBottom: 12 }}>
+          <Btn
+            variant="green"
+            onClick={handleAddPayment}
+            loading={busy}
+            style={{ marginBottom: 12 }}
+          >
             💵 Внести оплату
           </Btn>
         </div>
@@ -929,7 +1294,14 @@ export default function OrderDetailModal({ group, onClose }) {
 
       {/* Возврат */}
       {sectionTitle("Оформить возврат")}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          flexWrap: "wrap",
+          alignItems: "flex-end",
+        }}
+      >
         <div style={{ flex: 2, minWidth: 170 }}>
           <Field label="Товар">
             <SelectField
@@ -938,7 +1310,10 @@ export default function OrderDetailModal({ group, onClose }) {
               options={rows.map((r) => {
                 const already = returnedByProduct[r.product] || 0;
                 const left = Math.max(0, (Number(r.quantity) || 0) - already);
-                return { value: r.product, label: `${r.product} — можно ${left} шт` };
+                return {
+                  value: r.product,
+                  label: `${r.product} — можно ${left} шт`,
+                };
               })}
               placeholder="— выберите —"
             />
@@ -953,7 +1328,12 @@ export default function OrderDetailModal({ group, onClose }) {
             />
           </Field>
         </div>
-        <Btn variant="warn" onClick={handleReturn} loading={busy} style={{ marginBottom: 12 }}>
+        <Btn
+          variant="warn"
+          onClick={handleReturn}
+          loading={busy}
+          style={{ marginBottom: 12 }}
+        >
           ↩️ Возврат
         </Btn>
       </div>

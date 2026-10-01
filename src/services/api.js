@@ -42,21 +42,34 @@ export const saveOrder = (d) => apiPost({ action: "saveOrder", ...d });
 export const updateOrder = (d) => apiPost({ action: "updateOrder", ...d });
 // Обновляет только "шапку" заказа (рынок/клиент/даты/статус) сразу для
 // ВСЕХ строк заказа одним запросом — вместо updateOrder на каждую строку.
-export const updateOrderHeader = (d) => apiPost({ action: "updateOrderHeader", ...d });
+export const updateOrderHeader = (d) =>
+  apiPost({ action: "updateOrderHeader", ...d });
 export const addOrderRow = (d) => apiPost({ action: "addOrderRow", ...d });
-export const deleteOrder = (orderId) => apiPost({ action: "deleteOrder", orderId });
-export const deleteOrderRow = (rowId) => apiPost({ action: "deleteOrderRow", rowId });
+export const deleteOrder = (orderId) =>
+  apiPost({ action: "deleteOrder", orderId });
+export const deleteOrderRow = (rowId) =>
+  apiPost({ action: "deleteOrderRow", rowId });
 export const updateStatus = (orderId, status) =>
   apiPost({ action: "updateStatus", orderId, status });
-export const setStockOut = (date, product, qty) =>
-  apiPost({ action: "setStockOut", date, product, qty });
+// Привязано к КОНКРЕТНОМУ заказу (orderId), а не к дате — иначе если
+// несколько клиентов в один день заказывают один товар, система не может
+// понять, у кого именно вычитать недостачу.
+export const setStockOut = (orderId, product, qty) =>
+  apiPost({ action: "setStockOut", orderId, product, qty });
+// "Не поместилось" — товар был в наличии, но физически не увезли в этот
+// день (не хватило места в развозке). Отдельная отметка от "не хватает",
+// тоже привязана к конкретному заказу.
+export const setNotFit = (orderId, product, qty) =>
+  apiPost({ action: "setNotFit", orderId, product, qty });
 
 /* ─── ПЛАТЕЖИ И ВОЗВРАТЫ ──────────────────────────────────────────────── */
 export const savePayment = (d) => apiPost({ action: "savePayment", ...d });
 export const updatePayment = (d) => apiPost({ action: "updatePayment", ...d });
-export const deletePayment = (paymentId) => apiPost({ action: "deletePayment", paymentId });
+export const deletePayment = (paymentId) =>
+  apiPost({ action: "deletePayment", paymentId });
 export const saveReturn = (d) => apiPost({ action: "saveReturn", ...d });
-export const saveDebtReturn = (d) => apiPost({ action: "saveDebtReturn", ...d });
+export const saveDebtReturn = (d) =>
+  apiPost({ action: "saveDebtReturn", ...d });
 
 /* ─── КЛИЕНТЫ ─────────────────────────────────────────────────────────── */
 export const saveClient = (d) => apiPost({ action: "saveClient", ...d });
@@ -69,27 +82,36 @@ export const updateExpense = (d) => apiPost({ action: "updateExpense", ...d });
 export const deleteExpense = (id) => apiPost({ action: "deleteExpense", id });
 
 /* ─── ЗАМЕТКИ ─────────────────────────────────────────────────────────── */
-export const saveNote = (title, text) => apiPost({ action: "saveNote", title, text });
-export const updateNote = (id, title, text) => apiPost({ action: "updateNote", id, title, text });
-export const toggleNote = (id, completed) => apiPost({ action: "toggleNote", id, completed });
+export const saveNote = (title, text) =>
+  apiPost({ action: "saveNote", title, text });
+export const updateNote = (id, title, text) =>
+  apiPost({ action: "updateNote", id, title, text });
+export const toggleNote = (id, completed) =>
+  apiPost({ action: "toggleNote", id, completed });
 export const deleteNote = (id) => apiPost({ action: "deleteNote", id });
 
 /* ─── ПОСТАВЩИКИ ──────────────────────────────────────────────────────── */
-export const getSuppliers = () => apiGet("suppliers");  
+export const getSuppliers = () => apiGet("suppliers");
 export const saveSupplier = (d) => apiPost({ action: "saveSupplier", ...d });
-export const updateSupplier = (d) => apiPost({ action: "updateSupplier", ...d });
+export const updateSupplier = (d) =>
+  apiPost({ action: "updateSupplier", ...d });
 export const deleteSupplier = (id) => apiPost({ action: "deleteSupplier", id });
 
 /* ─── ЗАКУПКИ ─────────────────────────────────────────────────────────── */
 export const savePurchase = (d) => apiPost({ action: "savePurchase", ...d });
-export const updatePurchase = (d) => apiPost({ action: "updatePurchase", ...d });
+export const updatePurchase = (d) =>
+  apiPost({ action: "updatePurchase", ...d });
 export const deletePurchase = (id) => apiPost({ action: "deletePurchase", id });
-export const saveSupplierDebt = (d) => apiPost({ action: "saveSupplierDebt", ...d });
+export const saveSupplierDebt = (d) =>
+  apiPost({ action: "saveSupplierDebt", ...d });
 
 /* ─── ПЛАТЕЖИ ПОСТАВЩИКАМ ─────────────────────────────────────────────── */
-export const saveSupplierPayment = (d) => apiPost({ action: "saveSupplierPayment", ...d });
-export const updateSupplierPayment = (d) => apiPost({ action: "updateSupplierPayment", ...d });
-export const deleteSupplierPayment = (id) => apiPost({ action: "deleteSupplierPayment", id });
+export const saveSupplierPayment = (d) =>
+  apiPost({ action: "saveSupplierPayment", ...d });
+export const updateSupplierPayment = (d) =>
+  apiPost({ action: "updateSupplierPayment", ...d });
+export const deleteSupplierPayment = (id) =>
+  apiPost({ action: "deleteSupplierPayment", id });
 
 /* ─── ВЗАИМОЗАЧЁТЫ ────────────────────────────────────────────────────── */
 export const saveOffset = (d) => apiPost({ action: "saveOffset", ...d });
@@ -97,19 +119,26 @@ export const updateOffset = (d) => apiPost({ action: "updateOffset", ...d });
 export const deleteOffset = (id) => apiPost({ action: "deleteOffset", id });
 
 /* ─── СЫРЬЁ ───────────────────────────────────────────────────────────── */
-export const saveRawMaterial = (d) => apiPost({ action: "saveRawMaterial", ...d });
-export const updateRawMaterial = (d) => apiPost({ action: "updateRawMaterial", ...d });
-export const deleteRawMaterial = (id) => apiPost({ action: "deleteRawMaterial", id });
+export const saveRawMaterial = (d) =>
+  apiPost({ action: "saveRawMaterial", ...d });
+export const updateRawMaterial = (d) =>
+  apiPost({ action: "updateRawMaterial", ...d });
+export const deleteRawMaterial = (id) =>
+  apiPost({ action: "deleteRawMaterial", id });
 
 /* ─── НАЧАЛЬНЫЕ ОСТАТКИ ───────────────────────────────────────────────── */
-export const saveOpeningBalance = (d) => apiPost({ action: "saveOpeningBalance", ...d });
-export const updateOpeningBalance = (d) => apiPost({ action: "updateOpeningBalance", ...d });
-export const deleteOpeningBalance = (id) => apiPost({ action: "deleteOpeningBalance", id });
+export const saveOpeningBalance = (d) =>
+  apiPost({ action: "saveOpeningBalance", ...d });
+export const updateOpeningBalance = (d) =>
+  apiPost({ action: "updateOpeningBalance", ...d });
+export const deleteOpeningBalance = (id) =>
+  apiPost({ action: "deleteOpeningBalance", id });
 
 /* ─── КАТАЛОГ / ЦЕНЫ ──────────────────────────────────────────────────── */
 export const savePrice = (d) => apiPost({ action: "savePrice", ...d });
 export const updatePrice = (d) => apiPost({ action: "updatePrice", ...d });
-export const deletePrice = (product) => apiPost({ action: "deletePrice", product });
+export const deletePrice = (product) =>
+  apiPost({ action: "deletePrice", product });
 
 /* ─── ПРОЧЕЕ ──────────────────────────────────────────────────────────── */
 export const forceUpdateAll = () => apiPost({ action: "forceUpdateAll" });

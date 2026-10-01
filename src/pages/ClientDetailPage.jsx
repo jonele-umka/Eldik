@@ -128,7 +128,11 @@ function LedgerEntry({ entry, onEdit, onDelete }) {
             </IconBtn>
           )}
           {onDelete && (
-            <IconBtn title="Удалить" color="var(--red)" onClick={() => onDelete(entry)}>
+            <IconBtn
+              title="Удалить"
+              color="var(--red)"
+              onClick={() => onDelete(entry)}
+            >
               🗑
             </IconBtn>
           )}
@@ -161,8 +165,7 @@ function LedgerEntry({ entry, onEdit, onDelete }) {
               style={{
                 marginLeft: 8,
                 fontWeight: 700,
-                color:
-                  entry.openingRemaining > 0 ? "#d29922" : "var(--green)",
+                color: entry.openingRemaining > 0 ? "#d29922" : "var(--green)",
               }}
             >
               {entry.openingRemaining > 0
@@ -236,6 +239,25 @@ export default function ClientDetailPage({
   const clientMarket = clientRow?.market || "";
   const suppliersList = arr(store.suppliers);
 
+  // Те же отметки "не хватает"/"не поместилось", что и на странице
+  // Заказы — иначе итоги по заказу тут и там расходятся.
+  const stockOutMap = useMemo(() => {
+    const m = new Map();
+    arr(store.stockOuts).forEach((r) => {
+      if (r.orderId && r.product && Number(r.qty) > 0)
+        m.set(`${r.orderId}::${r.product}`, Number(r.qty));
+    });
+    return m;
+  }, [store.stockOuts]);
+  const notFitMap = useMemo(() => {
+    const m = new Map();
+    arr(store.notFits).forEach((r) => {
+      if (r.orderId && r.product && Number(r.qty) > 0)
+        m.set(`${r.orderId}::${r.product}`, Number(r.qty));
+    });
+    return m;
+  }, [store.notFits]);
+
   const openModal = (kind) => {
     if (kind === "payment") setForm({ date: todayString(), amount: "" });
     if (kind === "offset")
@@ -306,7 +328,11 @@ export default function ClientDetailPage({
         await mutate(
           () =>
             form.id
-              ? updatePayment({ paymentId: form.id, amount, paymentDate: form.date })
+              ? updatePayment({
+                  paymentId: form.id,
+                  amount,
+                  paymentDate: form.date,
+                })
               : savePayment({
                   client,
                   market: clientMarket,
@@ -317,12 +343,18 @@ export default function ClientDetailPage({
         );
       } else if (modal === "offset") {
         const amount = Number(form.amount);
-        if (!form.id && !form.supplier) return toast("Выберите поставщика", "err");
+        if (!form.id && !form.supplier)
+          return toast("Выберите поставщика", "err");
         if (!amount || amount <= 0) return toast("Укажите сумму", "err");
         await mutate(
           () =>
             form.id
-              ? updateOffset({ id: form.id, amount, date: form.date, comment: form.comment })
+              ? updateOffset({
+                  id: form.id,
+                  amount,
+                  date: form.date,
+                  comment: form.comment,
+                })
               : saveOffset({
                   client,
                   supplier: form.supplier,
@@ -649,7 +681,13 @@ export default function ClientDetailPage({
         <Btn variant="purple" onClick={() => openModal("offset")}>
           🔁 Зачёт поставщику
         </Btn>
-        <Btn variant="ghost" onClick={() => { setForm({}); setModal("opening"); }}>
+        <Btn
+          variant="ghost"
+          onClick={() => {
+            setForm({});
+            setModal("opening");
+          }}
+        >
           📌 Начальный остаток
         </Btn>
       </Toolbar>
@@ -776,6 +814,8 @@ export default function ClientDetailPage({
                 key={g.oid}
                 group={g}
                 prices={store.prices}
+                stockOutMap={stockOutMap}
+                notFitMap={notFitMap}
                 isMobile={isMobile}
                 onOpen={setOpenOrder}
               />
@@ -791,7 +831,11 @@ export default function ClientDetailPage({
         title={form.id ? "Изменить оплату" : `Оплата: ${client}`}
         footer={
           <>
-            <Btn variant="ghost" onClick={() => setModal(null)} disabled={saving}>
+            <Btn
+              variant="ghost"
+              onClick={() => setModal(null)}
+              disabled={saving}
+            >
               Отмена
             </Btn>
             <Btn variant="green" onClick={saveModal} loading={saving}>
@@ -801,9 +845,15 @@ export default function ClientDetailPage({
         }
       >
         <Field label="Дата">
-          <DateField value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
+          <DateField
+            value={form.date}
+            onChange={(v) => setForm({ ...form, date: v })}
+          />
         </Field>
-        <Field label="Сумма, сом" hint="Оплата без привязки к заказу закрывает общий долг">
+        <Field
+          label="Сумма, сом"
+          hint="Оплата без привязки к заказу закрывает общий долг"
+        >
           <TextInput
             inputMode="numeric"
             value={form.amount || ""}
@@ -820,7 +870,11 @@ export default function ClientDetailPage({
         subtitle="Клиент отдал деньги напрямую нашему поставщику"
         footer={
           <>
-            <Btn variant="ghost" onClick={() => setModal(null)} disabled={saving}>
+            <Btn
+              variant="ghost"
+              onClick={() => setModal(null)}
+              disabled={saving}
+            >
               Отмена
             </Btn>
             <Btn variant="purple" onClick={saveModal} loading={saving}>
@@ -842,7 +896,10 @@ export default function ClientDetailPage({
           )}
         </Field>
         <Field label="Дата">
-          <DateField value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
+          <DateField
+            value={form.date}
+            onChange={(v) => setForm({ ...form, date: v })}
+          />
         </Field>
         <Field label="Сумма, сом">
           <TextInput
@@ -871,7 +928,11 @@ export default function ClientDetailPage({
       )}
 
       {createOpen && (
-        <CreateOrderModal open onClose={() => setCreateOpen(false)} defaultClient={client} />
+        <CreateOrderModal
+          open
+          onClose={() => setCreateOpen(false)}
+          defaultClient={client}
+        />
       )}
 
       {openOrder && (

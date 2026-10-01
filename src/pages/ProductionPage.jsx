@@ -13,7 +13,7 @@ import { Btn } from "../components/Form.jsx";
 import { S } from "../utils/styles.js";
 import { useData } from "../store/DataContext.jsx";
 import { useUI } from "../store/UIContext.jsx";
-import { updateStatus, setStockOut } from "../services/api.js";
+import { updateStatus, setStockOut, setNotFit } from "../services/api.js";
 
 const norm = (s) =>
   String(s || "")
@@ -111,10 +111,36 @@ function StockOutBadge({ qty, small }) {
   );
 }
 
-// Общее количество за вычетом недостачи — чтобы сразу было видно, сколько
-// реально есть, без путаницы с изначальным "всего заказано".
-function TotalWithMissing({ total, missingQty }) {
-  if (!missingQty) {
+// Тот же значок, но для "не поместилось" (товар был в наличии, но не
+// увезли — не хватило места в развозке) — отдельная от "не хватает"
+// отметка, свой цвет, чтобы не путать причину.
+function NotFitBadge({ qty, small }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: small ? "2px 7px" : "3px 9px",
+        borderRadius: 20,
+        fontSize: small ? 10.5 : 11.5,
+        fontWeight: 700,
+        background: "rgba(163,113,247,.14)",
+        color: "var(--purple)",
+        whiteSpace: "nowrap",
+      }}
+    >
+      📦 Не поместилось: {fmt(qty)}
+    </span>
+  );
+}
+
+// Общее количество за вычетом недостачи и "не поместилось" — чтобы сразу
+// было видно, сколько реально есть/увезли, без путаницы с изначальным
+// "всего заказано".
+function TotalWithMissing({ total, missingQty, notFitQty = 0 }) {
+  const deducted = (missingQty || 0) + (notFitQty || 0);
+  if (!deducted) {
     return (
       <span
         style={{
@@ -128,7 +154,8 @@ function TotalWithMissing({ total, missingQty }) {
       </span>
     );
   }
-  const available = Math.max(0, Number(total || 0) - missingQty);
+  const available = Math.max(0, Number(total || 0) - deducted);
+  const color = missingQty > 0 ? "var(--red)" : "var(--purple)";
   return (
     <span
       style={{
@@ -143,7 +170,7 @@ function TotalWithMissing({ total, missingQty }) {
             fontFamily: "JetBrains Mono,monospace",
             fontSize: 14,
             fontWeight: 700,
-            color: "var(--red)",
+            color,
           }}
         >
           {fmt(available)}
@@ -158,21 +185,31 @@ function TotalWithMissing({ total, missingQty }) {
           {fmt(total)}
         </span>
       </span>
-      <span style={{ fontSize: 10.5, color: "var(--red)" }}>
-        −{fmt(missingQty)} нет в наличии
-      </span>
+      {missingQty > 0 && (
+        <span style={{ fontSize: 10.5, color: "var(--red)" }}>
+          −{fmt(missingQty)} нет в наличии
+        </span>
+      )}
+      {notFitQty > 0 && (
+        <span style={{ fontSize: 10.5, color: "var(--purple)" }}>
+          −{fmt(notFitQty)} не поместилось
+        </span>
+      )}
     </span>
   );
 }
 
-// Компактный ввод недостачи прямо в строке товара — без лишних кликов.
-function StockOutEditor({ date, product, missingQty, busy, onSave }) {
+// Компактный ввод недостачи прямо в строке заказа (в Развозке) — без
+// лишних кликов. Привязан к КОНКРЕТНОМУ заказу (orderId), а не к дате —
+// иначе отметка у одного клиента задевала бы заказы других клиентов с тем
+// же товаром на ту же дату доставки.
+function StockOutEditor({ orderId, product, missingQty, busy, onSave }) {
   const [val, setVal] = useState(String(missingQty || ""));
   useEffect(() => setVal(String(missingQty || "")), [missingQty]);
 
   const save = () => {
     const n = Math.max(0, parseInt(val, 10) || 0);
-    onSave(date, product, n);
+    onSave(orderId, product, n);
   };
 
   return (
@@ -203,26 +240,93 @@ function StockOutEditor({ date, product, missingQty, busy, onSave }) {
         loading={busy}
         onClick={save}
       >
-        {missingQty > 0 ? "Обновить" : "Не хватает"}
+        {missingQty > 0 ? "🚫 Обновить" : "🚫 Не хватает"}
+      </Btn>
+    </div>
+  );
+}
+
+// То же самое, но для отметки "не поместилось" — отдельный ключ в сторе
+// ("notFits"), независимый от "не хватает", чтобы не портить его логику.
+// Тоже привязан к конкретному заказу (orderId).
+function NotFitEditor({ orderId, product, notFitQty, busy, onSave }) {
+  const [val, setVal] = useState(String(notFitQty || ""));
+  useEffect(() => setVal(String(notFitQty || "")), [notFitQty]);
+
+  const save = () => {
+    const n = Math.max(0, parseInt(val, 10) || 0);
+    onSave(orderId, product, n);
+  };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <input
+        type="number"
+        min="0"
+        inputMode="numeric"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && save()}
+        placeholder="0"
+        style={{
+          width: 56,
+          textAlign: "center",
+          background: "var(--s1)",
+          border: "1px solid var(--b1)",
+          borderRadius: 7,
+          color: "var(--text)",
+          padding: "5px 4px",
+          fontFamily: "JetBrains Mono, monospace",
+          fontSize: 13,
+        }}
+      />
+      <Btn
+        size="sm"
+        variant={notFitQty > 0 ? "purple" : "ghost"}
+        loading={busy}
+        onClick={save}
+      >
+        {notFitQty > 0 ? "📦 Обновить" : "📦 Не поместилось"}
       </Btn>
     </div>
   );
 }
 
 // Кто и сколько заказал этот товар на эту дату доставки —
-// раскрывающаяся расшифровка строки производства.
-function ClientBreakdown({ rows }) {
-  const byClient = useMemo(() => {
+// раскрывающаяся расшифровка строки производства. Группируем ПО ЗАКАЗУ
+// (orderId), а не просто по имени клиента — так отметка "не хватает"/"не
+// поместилось" однозначно ложится на конкретный заказ, даже если у одного
+// клиента в этот день вдруг два заказа с этим товаром. Отмечать можно
+// прямо здесь, по каждому заказу (клиенту) — так же, как и в 🚚 Развозке.
+function ClientBreakdown({
+  rows,
+  product,
+  color = "#58a6ff",
+  stockOutMap,
+  notFitMap,
+  onSetStockOut,
+  stockOutBusy,
+  onSetNotFit,
+  notFitBusy,
+}) {
+  const byOrder = useMemo(() => {
     const m = {};
     rows.forEach((r) => {
-      const key = r.client || "—";
-      if (!m[key]) m[key] = { client: key, market: r.market || "", qty: 0 };
-      m[key].qty += Number(r.paidQuantity ?? r.quantity ?? 0);
+      const oid = r.orderId;
+      if (!oid) return;
+      if (!m[oid])
+        m[oid] = {
+          orderId: oid,
+          client: r.client || "—",
+          market: r.market || "",
+          qty: 0,
+        };
+      m[oid].qty += Number(r.paidQuantity ?? r.quantity ?? 0);
     });
     return Object.values(m).sort((a, b) => b.qty - a.qty);
   }, [rows]);
 
-  if (byClient.length === 0) {
+  if (byOrder.length === 0) {
     return (
       <div
         style={{ padding: "10px 14px", color: "var(--muted)", fontSize: 12.5 }}
@@ -233,40 +337,143 @@ function ClientBreakdown({ rows }) {
   }
 
   return (
-    <div style={{ padding: "6px 14px 12px" }}>
-      {byClient.map((c) => (
-        <div
-          key={c.client}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "6px 0",
-            borderBottom: "1px solid var(--b1)",
-            fontSize: 12.5,
-          }}
-        >
-          <span style={{ flex: 1 }}>
-            {c.client}
-            {c.market && (
-              <span
-                style={{ color: "var(--muted)", marginLeft: 6, fontSize: 11 }}
-              >
-                🏪 {c.market}
-              </span>
-            )}
-          </span>
-          <span
+    <div
+      style={{
+        padding: "6px 14px 12px",
+        background: `${color}0d`,
+        borderTop: `1px dashed ${color}59`,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "6px 0 8px",
+          marginBottom: 2,
+          borderBottom: `1px solid ${color}40`,
+        }}
+      >
+        <span style={{ fontSize: 13, fontWeight: 700, color }}>
+          🧾 {product}
+        </span>
+        <span style={{ fontSize: 11, color: "var(--muted)" }}>
+          — по каждому заказу (клиенту)
+        </span>
+      </div>
+      {byOrder.map((o) => {
+        const markKey = `${o.orderId}::${product}`;
+        const missingQty = Number(stockOutMap?.get(markKey) || 0);
+        const notFitQty = Number(notFitMap?.get(markKey) || 0);
+        return (
+          <div
+            key={o.orderId}
             style={{
-              fontFamily: "JetBrains Mono,monospace",
-              fontWeight: 700,
-              color: "var(--accent)",
+              padding: "8px 0",
+              borderBottom: "1px solid var(--b1)",
             }}
           >
-            {fmt(c.qty)}
-          </span>
-        </div>
-      ))}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                flexWrap: "wrap",
+              }}
+            >
+              <span
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  flex: 1,
+                  minWidth: 140,
+                  flexWrap: "wrap",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: "var(--text)",
+                  }}
+                >
+                  👤 {o.client}
+                </span>
+                {o.market && (
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: "var(--accent)",
+                      background: "rgba(88,166,255,.12)",
+                      border: "1px solid rgba(88,166,255,.3)",
+                      borderRadius: 6,
+                      padding: "2px 7px",
+                    }}
+                  >
+                    🏪 {o.market}
+                  </span>
+                )}
+              </span>
+              {missingQty > 0 && <StockOutBadge qty={missingQty} small />}
+              {notFitQty > 0 && <NotFitBadge qty={notFitQty} small />}
+              <span
+                style={{
+                  fontFamily: "JetBrains Mono,monospace",
+                  fontWeight: 700,
+                  fontSize: 13.5,
+                  color: "var(--accent)",
+                }}
+              >
+                {fmt(o.qty)}
+              </span>
+            </div>
+            <div
+              style={{
+                marginTop: 6,
+                padding: "7px 9px",
+                background: "rgba(63,185,80,.06)",
+                border: "1px dashed rgba(63,185,80,.35)",
+                borderRadius: 8,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 10.5,
+                  color: "var(--green)",
+                  marginBottom: 6,
+                }}
+              >
+                ✏️ Отметить по заказу этого клиента:
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  flexWrap: "wrap",
+                }}
+              >
+                <StockOutEditor
+                  orderId={o.orderId}
+                  product={product}
+                  missingQty={missingQty}
+                  busy={stockOutBusy?.has(markKey)}
+                  onSave={onSetStockOut}
+                />
+                <NotFitEditor
+                  orderId={o.orderId}
+                  product={product}
+                  notFitQty={notFitQty}
+                  busy={notFitBusy?.has(markKey)}
+                  onSave={onSetNotFit}
+                />
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -275,12 +482,15 @@ function ProductionView({
   data,
   orders,
   stockOutMap,
+  notFitMap,
   search,
   prices,
   isMobile,
   isTablet,
   onSetStockOut,
   stockOutBusy,
+  onSetNotFit,
+  notFitBusy,
 }) {
   const [dateFilter, setDateFilter] = useState("");
   const [expanded, setExpanded] = useState(() => new Set());
@@ -289,7 +499,7 @@ function ProductionView({
 
   const priceMap = useMemo(() => {
     const m = {};
-    (prices || []).forEach((p) => {
+    (Array.isArray(prices) ? prices : []).forEach((p) => {
       if (p.product) m[p.product] = toDriveDirectUrl(p.image || "");
     });
     return m;
@@ -344,6 +554,36 @@ function ProductionView({
     return m;
   }, [orders]);
 
+  // Отметки "не хватает"/"не поместилось" привязаны к КОНКРЕТНОМУ заказу
+  // (orderId), а не к дате+товару — отмечать можно и здесь (в разбивке по
+  // клиентам/заказам, см. ClientBreakdown), и в 🚚 Развозке. В строке
+  // товара (эта функция) просто СУММИРУЕМ все отметки по дате+товару, для
+  // общей картины по производству.
+  const missingQtyAgg = (date, product) => {
+    const key = `${date}::${product}`;
+    const seen = new Set();
+    let sum = 0;
+    (ordersByDateProduct[key] || []).forEach((o) => {
+      const oid = o.orderId;
+      if (!oid || seen.has(oid)) return;
+      seen.add(oid);
+      sum += Number(stockOutMap.get(`${oid}::${product}`) || 0);
+    });
+    return sum;
+  };
+  const notFitQtyAgg = (date, product) => {
+    const key = `${date}::${product}`;
+    const seen = new Set();
+    let sum = 0;
+    (ordersByDateProduct[key] || []).forEach((o) => {
+      const oid = o.orderId;
+      if (!oid || seen.has(oid)) return;
+      seen.add(oid);
+      sum += Number(notFitMap?.get(`${oid}::${product}`) || 0);
+    });
+    return sum;
+  };
+
   const toggleExpand = (key) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -351,6 +591,25 @@ function ProductionView({
       else next.add(key);
       return next;
     });
+
+  // Своя цветовая метка на каждый товар (по кругу) — чтобы соседние
+  // строки не сливались, а при нескольких раскрытых списках сразу было
+  // видно, какая расшифровка к какому товару относится (цвет полоски
+  // слева и у строки, и у её раскрытого списка — одинаковый).
+  // Порядок подобран так, чтобы соседние по очереди цвета были подальше
+  // друг от друга на цветовом круге (а не просто подряд, как жёлтый и
+  // красный) — иначе глазу тяжело отличить два товара рядом.
+  const rowColors = [
+    "#f85149", // красный
+    "#58a6ff", // синий
+    "#d29922", // жёлтый
+    "#a371f7", // фиолетовый
+    "#3fb950", // зелёный
+    "#db61a2", // розовый
+    "#39c5cf", // бирюзовый
+    "#8b949e", // серый
+  ];
+  const colorForRow = (i) => rowColors[i % rowColors.length];
 
   return (
     <>
@@ -380,10 +639,14 @@ function ProductionView({
           const status = getDateStatus(date);
           const dayOrdered = rows.reduce((s, r) => s + Number(r.total || 0), 0);
           const dayMissing = rows.reduce(
-            (s, r) => s + (stockOutMap.get(`${r.date}::${r.product}`) || 0),
+            (s, r) => s + missingQtyAgg(r.date, r.product),
             0,
           );
-          const dayTotal = Math.max(0, dayOrdered - dayMissing);
+          const dayNotFit = rows.reduce(
+            (s, r) => s + notFitQtyAgg(r.date, r.product),
+            0,
+          );
+          const dayTotal = Math.max(0, dayOrdered - dayMissing - dayNotFit);
           return (
             <div
               key={date}
@@ -421,9 +684,16 @@ function ProductionView({
                 </span>
                 <span style={{ fontSize: 12, color: "var(--muted)" }}>
                   {rows.length} товар(ов) ·{" "}
-                  {dayMissing > 0 ? (
+                  {dayMissing + dayNotFit > 0 ? (
                     <>
-                      <b style={{ color: "var(--red)" }}>{fmt(dayTotal)}</b>{" "}
+                      <b
+                        style={{
+                          color:
+                            dayMissing > 0 ? "var(--red)" : "var(--purple)",
+                        }}
+                      >
+                        {fmt(dayTotal)}
+                      </b>{" "}
                       <span style={{ textDecoration: "line-through" }}>
                         {fmt(dayOrdered)}
                       </span>{" "}
@@ -441,15 +711,18 @@ function ProductionView({
                   {rows.map((r, i) => {
                     const key = `${r.date}::${r.product}`;
                     const isOpen = expanded.has(key);
-                    const missingQty = stockOutMap.get(key) || 0;
+                    const missingQty = missingQtyAgg(r.date, r.product);
+                    const notFitQty = notFitQtyAgg(r.date, r.product);
+                    const color = colorForRow(i);
                     return (
                       <div
-                        key={i}
+                        key={key}
                         style={{
                           borderBottom:
                             i < rows.length - 1
                               ? "1px solid var(--b1)"
                               : "none",
+                          borderLeft: `3px solid ${color}`,
                         }}
                       >
                         <div
@@ -459,6 +732,7 @@ function ProductionView({
                             gap: 10,
                             padding: "12px 14px",
                             cursor: "pointer",
+                            background: isOpen ? `${color}14` : "transparent",
                           }}
                         >
                           <ProductThumb src={priceMap[r.product]} />
@@ -472,11 +746,15 @@ function ProductionView({
                               }}
                             >
                               <b style={{ fontSize: 13 }}>
-                                {isOpen ? "▾" : "▸"} {r.product}
+                                <span style={{ color }}>
+                                  {isOpen ? "🧾▾" : "🧾▸"}
+                                </span>{" "}
+                                {r.product}
                               </b>
                               <TotalWithMissing
                                 total={r.total}
                                 missingQty={missingQty}
+                                notFitQty={notFitQty}
                               />
                             </div>
                             <div style={{ marginTop: 6 }}>
@@ -493,32 +771,37 @@ function ProductionView({
                                 {r.comment}
                               </div>
                             )}
-                            <div
-                              style={{
-                                marginTop: 8,
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 8,
-                                flexWrap: "wrap",
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {missingQty > 0 && (
-                                <StockOutBadge qty={missingQty} small />
-                              )}
-                              <StockOutEditor
-                                date={r.date}
-                                product={r.product}
-                                missingQty={missingQty}
-                                busy={stockOutBusy.has(key)}
-                                onSave={onSetStockOut}
-                              />
-                            </div>
+                            {(missingQty > 0 || notFitQty > 0) && (
+                              <div
+                                style={{
+                                  marginTop: 8,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 8,
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                {missingQty > 0 && (
+                                  <StockOutBadge qty={missingQty} small />
+                                )}
+                                {notFitQty > 0 && (
+                                  <NotFitBadge qty={notFitQty} small />
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
                         {isOpen && (
                           <ClientBreakdown
                             rows={ordersByDateProduct[key] || []}
+                            product={r.product}
+                            color={color}
+                            stockOutMap={stockOutMap}
+                            notFitMap={notFitMap}
+                            onSetStockOut={onSetStockOut}
+                            stockOutBusy={stockOutBusy}
+                            onSetNotFit={onSetNotFit}
+                            notFitBusy={notFitBusy}
                           />
                         )}
                       </div>
@@ -545,14 +828,19 @@ function ProductionView({
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((r) => {
+                      {rows.map((r, i) => {
                         const key = `${r.date}::${r.product}`;
                         const isOpen = expanded.has(key);
-                        const missingQty = stockOutMap.get(key) || 0;
+                        const missingQty = missingQtyAgg(r.date, r.product);
+                        const notFitQty = notFitQtyAgg(r.date, r.product);
+                        const color = colorForRow(i);
                         return (
                           <Fragment key={key}>
-                            <TR onClick={() => toggleExpand(key)}>
-                              <TD>
+                            <TR
+                              onClick={() => toggleExpand(key)}
+                              bgColor={isOpen ? `${color}1a` : undefined}
+                            >
+                              <TD style={{ borderLeft: `3px solid ${color}` }}>
                                 <div
                                   style={{
                                     display: "flex",
@@ -560,13 +848,8 @@ function ProductionView({
                                     gap: 8,
                                   }}
                                 >
-                                  <span
-                                    style={{
-                                      color: "var(--muted)",
-                                      fontSize: 11,
-                                    }}
-                                  >
-                                    {isOpen ? "▾" : "▸"}
+                                  <span style={{ color, fontSize: 12 }}>
+                                    {isOpen ? "🧾▾" : "🧾▸"}
                                   </span>
                                   <ProductThumb
                                     src={priceMap[r.product]}
@@ -579,6 +862,7 @@ function ProductionView({
                                 <TotalWithMissing
                                   total={r.total}
                                   missingQty={missingQty}
+                                  notFitQty={notFitQty}
                                 />
                               </TD>
                               <TD>
@@ -588,21 +872,26 @@ function ProductionView({
                                 <div
                                   style={{
                                     display: "flex",
-                                    alignItems: "center",
+                                    flexDirection: "column",
                                     gap: 6,
-                                    flexWrap: "wrap",
                                   }}
                                 >
                                   {missingQty > 0 && (
                                     <StockOutBadge qty={missingQty} small />
                                   )}
-                                  <StockOutEditor
-                                    date={r.date}
-                                    product={r.product}
-                                    missingQty={missingQty}
-                                    busy={stockOutBusy.has(key)}
-                                    onSave={onSetStockOut}
-                                  />
+                                  {notFitQty > 0 && (
+                                    <NotFitBadge qty={notFitQty} small />
+                                  )}
+                                  {missingQty === 0 && notFitQty === 0 && (
+                                    <span
+                                      style={{
+                                        color: "var(--muted)",
+                                        fontSize: 11.5,
+                                      }}
+                                    >
+                                      —
+                                    </span>
+                                  )}
                                 </div>
                               </TD>
                               <TD
@@ -622,10 +911,19 @@ function ProductionView({
                                   style={{
                                     background: "var(--s2)",
                                     borderTop: "1px solid var(--b1)",
+                                    borderLeft: `3px solid ${color}`,
                                   }}
                                 >
                                   <ClientBreakdown
                                     rows={ordersByDateProduct[key] || []}
+                                    product={r.product}
+                                    color={color}
+                                    stockOutMap={stockOutMap}
+                                    notFitMap={notFitMap}
+                                    onSetStockOut={onSetStockOut}
+                                    stockOutBusy={stockOutBusy}
+                                    onSetNotFit={onSetNotFit}
+                                    notFitBusy={notFitBusy}
                                   />
                                 </td>
                               </tr>
@@ -649,18 +947,23 @@ function DeliveryView({
   orders,
   clients,
   stockOutMap,
+  notFitMap,
   search,
   prices,
   isMobile,
   onToggleStatus,
   statusBusy,
+  onSetStockOut,
+  stockOutBusy,
+  onSetNotFit,
+  notFitBusy,
 }) {
   const [dateFilter, setDateFilter] = useState("");
   const [marketFilter, setMarketFilter] = useState("");
 
   const imageByProduct = useMemo(() => {
     const m = {};
-    (prices || []).forEach((p) => {
+    (Array.isArray(prices) ? prices : []).forEach((p) => {
       if (p.product) m[p.product] = p.image || "";
     });
     return m;
@@ -873,47 +1176,98 @@ function DeliveryView({
                         style={{
                           display: "flex",
                           flexDirection: "column",
-                          gap: 6,
+                          gap: 8,
                         }}
                       >
                         {r.rows.map((it, j) => {
-                          const missingQty =
-                            stockOutMap.get(`${date}::${it.product}`) || 0;
+                          const markKey = `${r.oid}::${it.product}`;
+                          const missingQty = stockOutMap.get(markKey) || 0;
+                          const notFitQty = notFitMap?.get(markKey) || 0;
                           return (
                             <div
                               key={j}
                               style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 8,
                                 padding: "4px 0",
                                 borderBottom:
                                   j < r.rows.length - 1
                                     ? "1px solid var(--b1)"
                                     : "none",
-                                flexWrap: "wrap",
                               }}
                             >
-                              <ProductThumb
-                                src={imageByProduct[it.product]}
-                                size={26}
-                              />
-                              <span style={{ fontSize: 12.5, flex: 1 }}>
-                                {it.product}
-                              </span>
-                              {missingQty > 0 && (
-                                <StockOutBadge qty={missingQty} small />
-                              )}
-                              <span
+                              <div
                                 style={{
-                                  fontFamily: "JetBrains Mono,monospace",
-                                  fontSize: 13,
-                                  fontWeight: 700,
-                                  color: "var(--accent)",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 8,
+                                  flexWrap: "wrap",
                                 }}
                               >
-                                {fmt(it.paidQuantity ?? it.quantity)}
-                              </span>
+                                <ProductThumb
+                                  src={imageByProduct[it.product]}
+                                  size={26}
+                                />
+                                <span style={{ fontSize: 12.5, flex: 1 }}>
+                                  {it.product}
+                                </span>
+                                {missingQty > 0 && (
+                                  <StockOutBadge qty={missingQty} small />
+                                )}
+                                {notFitQty > 0 && (
+                                  <NotFitBadge qty={notFitQty} small />
+                                )}
+                                <span
+                                  style={{
+                                    fontFamily: "JetBrains Mono,monospace",
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    color: "var(--accent)",
+                                  }}
+                                >
+                                  {fmt(it.paidQuantity ?? it.quantity)}
+                                </span>
+                              </div>
+                              <div
+                                style={{
+                                  marginTop: 6,
+                                  padding: "7px 9px",
+                                  background: "rgba(210,153,34,.08)",
+                                  border: "1px dashed rgba(210,153,34,.4)",
+                                  borderRadius: 8,
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    fontSize: 10.5,
+                                    color: "#d29922",
+                                    marginBottom: 6,
+                                  }}
+                                >
+                                  ✏️ Отметить по этому заказу:
+                                </div>
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 10,
+                                    flexWrap: "wrap",
+                                  }}
+                                >
+                                  <StockOutEditor
+                                    orderId={r.oid}
+                                    product={it.product}
+                                    missingQty={missingQty}
+                                    busy={stockOutBusy?.has(markKey)}
+                                    onSave={onSetStockOut}
+                                  />
+                                  <NotFitEditor
+                                    orderId={r.oid}
+                                    product={it.product}
+                                    notFitQty={notFitQty}
+                                    busy={notFitBusy?.has(markKey)}
+                                    onSave={onSetNotFit}
+                                  />
+                                </div>
+                              </div>
                             </div>
                           );
                         })}
@@ -949,17 +1303,34 @@ export function ProductionDeliveryPage({
 
   const [statusBusy, setStatusBusy] = useState(() => new Set());
   const [stockOutBusy, setStockOutBusy] = useState(() => new Set());
+  const [notFitBusy, setNotFitBusy] = useState(() => new Set());
 
-  // key "дата::товар" -> сколько не хватает (шт). Общее количество на
-  // производстве и в развозке уменьшается на эту цифру, чтобы не путаться.
+  // key "ID заказа::товар" -> сколько не хватает (шт). Привязано к
+  // КОНКРЕТНОМУ заказу — иначе если несколько клиентов заказывают один
+  // товар на одну дату доставки, система не может понять, у кого именно
+  // вычитать недостачу. Отмечается в Развозке (см. DeliveryView ниже), в
+  // Производстве эти отметки только суммируются для общей картины.
   const stockOutMap = useMemo(() => {
     const m = new Map();
     (Array.isArray(store.stockOuts) ? store.stockOuts : []).forEach((r) => {
-      if (r.date && r.product && Number(r.qty) > 0)
-        m.set(`${r.date}::${r.product}`, Number(r.qty));
+      if (r.orderId && r.product && Number(r.qty) > 0)
+        m.set(`${r.orderId}::${r.product}`, Number(r.qty));
     });
     return m;
   }, [store.stockOuts]);
+
+  // key "ID заказа::товар" -> сколько не поместилось (шт) — товар был в
+  // наличии, но физически не увезли (не хватило места в развозке).
+  // Отдельная от "не хватает" отметка, свой лист на бэкенде, тоже по
+  // конкретному заказу.
+  const notFitMap = useMemo(() => {
+    const m = new Map();
+    (Array.isArray(store.notFits) ? store.notFits : []).forEach((r) => {
+      if (r.orderId && r.product && Number(r.qty) > 0)
+        m.set(`${r.orderId}::${r.product}`, Number(r.qty));
+    });
+    return m;
+  }, [store.notFits]);
 
   const handleToggleStatus = async (oid, nextStatus) => {
     setStatusBusy((prev) => new Set(prev).add(oid));
@@ -977,16 +1348,35 @@ export function ProductionDeliveryPage({
     }
   };
 
-  const handleSetStockOut = async (date, product, qty) => {
-    const key = `${date}::${product}`;
+  // Отмечается по ID конкретного заказа (не по дате) — см. комментарий у
+  // stockOutMap выше.
+  const handleSetStockOut = async (orderId, product, qty) => {
+    const key = `${orderId}::${product}`;
     setStockOutBusy((prev) => new Set(prev).add(key));
     try {
-      await mutate(() => setStockOut(date, product, qty), ["stockOuts"]);
+      await mutate(() => setStockOut(orderId, product, qty), ["stockOuts"]);
       toast(qty > 0 ? `Не хватает: ${qty} шт` : "Отметка снята", "ok");
     } catch (e) {
       toast(e.message, "err");
     } finally {
       setStockOutBusy((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  };
+
+  const handleSetNotFit = async (orderId, product, qty) => {
+    const key = `${orderId}::${product}`;
+    setNotFitBusy((prev) => new Set(prev).add(key));
+    try {
+      await mutate(() => setNotFit(orderId, product, qty), ["notFits"]);
+      toast(qty > 0 ? `Не поместилось: ${qty} шт` : "Отметка снята", "ok");
+    } catch (e) {
+      toast(e.message, "err");
+    } finally {
+      setNotFitBusy((prev) => {
         const next = new Set(prev);
         next.delete(key);
         return next;
@@ -1016,23 +1406,31 @@ export function ProductionDeliveryPage({
           data={data}
           orders={orders}
           stockOutMap={stockOutMap}
+          notFitMap={notFitMap}
           search={search}
           prices={prices}
           isMobile={isMobile}
           isTablet={isTablet}
           onSetStockOut={handleSetStockOut}
           stockOutBusy={stockOutBusy}
+          onSetNotFit={handleSetNotFit}
+          notFitBusy={notFitBusy}
         />
       ) : (
         <DeliveryView
           orders={orders}
           clients={clients}
           stockOutMap={stockOutMap}
+          notFitMap={notFitMap}
           search={search}
           prices={prices}
           isMobile={isMobile}
           onToggleStatus={handleToggleStatus}
           statusBusy={statusBusy}
+          onSetStockOut={handleSetStockOut}
+          stockOutBusy={stockOutBusy}
+          onSetNotFit={handleSetNotFit}
+          notFitBusy={notFitBusy}
         />
       )}
     </>

@@ -34,16 +34,29 @@ export default function OrdersPage({
   const { data: store } = useData();
   const prices = Array.isArray(store.prices) ? store.prices : [];
 
-  // key "дата доставки::товар" -> сколько не хватает (шт), отмечено на
-  // странице производства/развозки — показываем ту же отметку в заказах.
+  // key "ID заказа::товар" -> сколько не хватает (шт), отмечено на
+  // странице развозки — показываем ту же отметку в заказах. Привязано к
+  // конкретному заказу, а не к дате+товару, чтобы не путать разных клиентов,
+  // заказавших один товар на одну дату доставки.
   const stockOutMap = useMemo(() => {
     const m = new Map();
     (Array.isArray(store.stockOuts) ? store.stockOuts : []).forEach((r) => {
-      if (r.date && r.product && Number(r.qty) > 0)
-        m.set(`${r.date}::${r.product}`, Number(r.qty));
+      if (r.orderId && r.product && Number(r.qty) > 0)
+        m.set(`${r.orderId}::${r.product}`, Number(r.qty));
     });
     return m;
   }, [store.stockOuts]);
+
+  // key "ID заказа::товар" -> сколько не поместилось (шт) — отдельная
+  // от "не хватает" отметка, та же схема.
+  const notFitMap = useMemo(() => {
+    const m = new Map();
+    (Array.isArray(store.notFits) ? store.notFits : []).forEach((r) => {
+      if (r.orderId && r.product && Number(r.qty) > 0)
+        m.set(`${r.orderId}::${r.product}`, Number(r.qty));
+    });
+    return m;
+  }, [store.notFits]);
 
   // filters
   const [market, setMarket] = useState("");
@@ -115,11 +128,19 @@ export default function OrdersPage({
   // та же логика, что в OrderCard, нужна и тут, чтобы общий долг по
   // списку заказов совпадал с долгом, который показывает каждая карточка.
   const stockOutDeductionFor = (g) => {
-    if (!g.deliveryDate) return 0;
     return (g.rows || []).reduce((s, r) => {
       const qty = Number(r.paidQuantity ?? r.quantity ?? 0);
-      const missing = Number(stockOutMap.get(`${g.deliveryDate}::${r.product}`) || 0);
+      const missing = Number(stockOutMap.get(`${g.oid}::${r.product}`) || 0);
       return s + Math.min(qty, missing) * Number(r.price || 0);
+    }, 0);
+  };
+  const notFitDeductionFor = (g) => {
+    return (g.rows || []).reduce((s, r) => {
+      const qty = Number(r.paidQuantity ?? r.quantity ?? 0);
+      const missing = Number(stockOutMap.get(`${g.oid}::${r.product}`) || 0);
+      const remaining = Math.max(0, qty - missing);
+      const notFit = Number(notFitMap.get(`${g.oid}::${r.product}`) || 0);
+      return s + Math.min(remaining, notFit) * Number(r.price || 0);
     }, 0);
   };
 
@@ -130,7 +151,10 @@ export default function OrdersPage({
   const kpiDebt = allGroups.reduce((s, g) => {
     const effectiveTotal = Math.max(
       0,
-      g.totalSum - g.returnedAmount - stockOutDeductionFor(g),
+      g.totalSum -
+        g.returnedAmount -
+        stockOutDeductionFor(g) -
+        notFitDeductionFor(g),
     );
     const paid =
       g.totalPaidAmount !== undefined ? g.totalPaidAmount : g.paidAmount;
@@ -308,6 +332,7 @@ export default function OrdersPage({
             group={g}
             prices={prices}
             stockOutMap={stockOutMap}
+            notFitMap={notFitMap}
             isMobile={isMobile}
             onSelectClient={onSelectClient}
             onOpen={setOpenOrder}

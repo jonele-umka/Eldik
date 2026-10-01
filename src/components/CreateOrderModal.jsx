@@ -16,7 +16,12 @@ import { useUI } from "../store/UIContext.jsx";
 import { saveOrder } from "../services/api.js";
 import { ProductThumb } from "./UI.jsx";
 import { priceOf } from "../utils/promo.js";
-import { fmtM } from "../utils/index.js";
+import { fmtM, parseDate } from "../utils/index.js";
+
+const normName = (s) =>
+  String(s || "")
+    .trim()
+    .toLowerCase();
 
 export default function CreateOrderModal({ open, onClose, defaultClient }) {
   const { data, mutate } = useData();
@@ -51,6 +56,65 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
   const [items, setItems] = useState({}); // product -> {qty, comment}
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
+  const [unfulfilledOpen, setUnfulfilledOpen] = useState(false);
+
+  // Отметки "не хватает"/"не поместилось" — те же данные, что на странице
+  // Развозки, ключ "ID заказа::товар" (привязаны к конкретному заказу, а
+  // не просто к дате+товару — иначе путались бы разные клиенты).
+  const allOrderRows = Array.isArray(data.orders) ? data.orders : [];
+  const allStockOuts = Array.isArray(data.stockOuts) ? data.stockOuts : [];
+  const allNotFits = Array.isArray(data.notFits) ? data.notFits : [];
+  const stockOutMap = useMemo(() => {
+    const m = new Map();
+    allStockOuts.forEach((r) => {
+      if (r.orderId && r.product && Number(r.qty) > 0)
+        m.set(`${r.orderId}::${r.product}`, Number(r.qty));
+    });
+    return m;
+  }, [allStockOuts]);
+  const notFitMap = useMemo(() => {
+    const m = new Map();
+    allNotFits.forEach((r) => {
+      if (r.orderId && r.product && Number(r.qty) > 0)
+        m.set(`${r.orderId}::${r.product}`, Number(r.qty));
+    });
+    return m;
+  }, [allNotFits]);
+
+  // Раньше недопоставленный товар переносили отдельным заказом на
+  // завтра — теперь просто фиксируем нехватку/непомещение по конкретному
+  // заказу, а здесь, при следующем заказе этого же клиента, напоминаем об
+  // этом: по датам, что именно и сколько не доехало, чтобы можно было
+  // решить — добавить ли это в текущий заказ (как обычно, вручную) или нет.
+  const unfulfilledByDate = useMemo(() => {
+    if (!client) return [];
+    const byDate = {};
+    allOrderRows.forEach((r) => {
+      if (
+        normName(r.client) !== normName(client) ||
+        !r.deliveryDate ||
+        !r.orderId
+      )
+        return;
+      const date = String(r.deliveryDate).split(" ")[0];
+      const key = `${r.orderId}::${r.product}`;
+      const qty = Number(r.paidQuantity ?? r.quantity ?? 0);
+      const missing = Math.min(qty, Number(stockOutMap.get(key) || 0));
+      const remaining = Math.max(0, qty - missing);
+      const notFit = Math.min(remaining, Number(notFitMap.get(key) || 0));
+      if (missing <= 0 && notFit <= 0) return;
+      if (!byDate[date]) byDate[date] = [];
+      byDate[date].push({ product: r.product, missing, notFit });
+    });
+    return Object.entries(byDate)
+      .sort((a, b) => parseDate(b[0]) - parseDate(a[0]))
+      .slice(0, 10);
+  }, [client, allOrderRows, stockOutMap, notFitMap]);
+
+  const unfulfilledCount = unfulfilledByDate.reduce(
+    (s, [, items]) => s + items.length,
+    0,
+  );
 
   const marketClients = useMemo(
     () => clients.filter((c) => c.market === market).map((c) => c.name),
@@ -287,6 +351,128 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
           <DateField value={deliveryDate} onChange={setDeliveryDate} />
         </Field>
       </div>
+
+      {unfulfilledCount > 0 && (
+        <div
+          style={{
+            border: "1px solid rgba(210,153,34,0.4)",
+            background: "rgba(210,153,34,.06)",
+            borderRadius: 10,
+            marginBottom: 10,
+            overflow: "hidden",
+          }}
+        >
+          <button
+            onClick={() => setUnfulfilledOpen((v) => !v)}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 8,
+              padding: "9px 12px",
+              background: "transparent",
+              border: "none",
+              color: "#d29922",
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+          >
+            <span>
+              {unfulfilledOpen ? "▾" : "▸"} Не довезли в прошлый раз:{" "}
+              {unfulfilledCount} поз.
+            </span>
+            <span
+              style={{ fontSize: 11, color: "var(--muted)", fontWeight: 400 }}
+            >
+              не хватало / не поместилось
+            </span>
+          </button>
+
+          {unfulfilledOpen && (
+            <div style={{ padding: "0 12px 10px" }}>
+              {unfulfilledByDate.map(([date, list]) => (
+                <div key={date} style={{ marginBottom: 8 }}>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "var(--muted)",
+                      marginBottom: 4,
+                    }}
+                  >
+                    📅 {date}
+                  </div>
+                  {list.map((it, idx) => {
+                    const total = it.missing + it.notFit;
+                    const row = prices.find((p) => p.product === it.product);
+                    return (
+                      <div
+                        key={idx}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          padding: "5px 0",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <ProductThumb src={row?.image} size={22} />
+                        <span
+                          style={{ fontSize: 12.5, flex: 1, minWidth: 100 }}
+                        >
+                          {it.product}
+                        </span>
+                        {it.missing > 0 && (
+                          <span
+                            style={{
+                              fontSize: 10.5,
+                              fontWeight: 700,
+                              color: "var(--red)",
+                              background: "rgba(248,81,73,.14)",
+                              borderRadius: 20,
+                              padding: "2px 7px",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            🚫 не хватило: {it.missing}
+                          </span>
+                        )}
+                        {it.notFit > 0 && (
+                          <span
+                            style={{
+                              fontSize: 10.5,
+                              fontWeight: 700,
+                              color: "var(--purple)",
+                              background: "rgba(163,113,247,.14)",
+                              borderRadius: 20,
+                              padding: "2px 7px",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            📦 не поместилось: {it.notFit}
+                          </span>
+                        )}
+                        <Btn
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            const current = Number(items[it.product]?.qty || 0);
+                            setQty(it.product, current + total);
+                          }}
+                        >
+                          + добавить {total} в заказ
+                        </Btn>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <TextInput
         placeholder="🔍 Поиск товара..."

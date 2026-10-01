@@ -7,17 +7,26 @@ import { KPI, TableWrap, TR, TD, TH, ProductThumb } from "../components/UI.jsx";
 import { todayString } from "../components/Form.jsx";
 import { S } from "../utils/styles.js";
 
-export default function DashboardPage({ orders, debtors, finance, production, prices, isMobile, onGo }) {
+export default function DashboardPage({
+  orders,
+  debtors,
+  finance,
+  production,
+  prices,
+  isMobile,
+  onGo,
+}) {
   const today = todayString();
   const thisMonth = getMonth(today);
 
   const ordersArr = Array.isArray(orders) ? orders : [];
   const debtorsArr = Array.isArray(debtors) ? debtors : [];
+  const pricesArr = Array.isArray(prices) ? prices : [];
   const prodData = production || {};
 
   const imageByProduct = useMemo(() => {
     const m = {};
-    (prices || []).forEach((p) => {
+    pricesArr.forEach((p) => {
       if (p.product) m[p.product] = p.image || "";
     });
     return m;
@@ -43,7 +52,10 @@ export default function DashboardPage({ orders, debtors, finance, production, pr
   const profitMonth = useMemo(() => {
     return Object.values(monthFinance).reduce(
       (s, d) =>
-        s + (Number(d.income || 0) - Number(d.expense || 0) - Number(d.returns || 0)),
+        s +
+        (Number(d.income || 0) -
+          Number(d.expense || 0) -
+          Number(d.returns || 0)),
       0,
     );
   }, [monthFinance]);
@@ -65,11 +77,18 @@ export default function DashboardPage({ orders, debtors, finance, production, pr
   const todayProduction = useMemo(() => {
     const dayData = prodData[today] || {};
     return Object.entries(dayData)
-      .map(([product, info]) => ({ product, total: info.total, markets: info.markets || {} }))
+      .map(([product, info]) => ({
+        product,
+        total: info.total,
+        markets: info.markets || {},
+      }))
       .sort((a, b) => b.total - a.total);
   }, [prodData, today]);
 
-  const producedToday = todayProduction.reduce((s, r) => s + Number(r.total || 0), 0);
+  const producedToday = todayProduction.reduce(
+    (s, r) => s + Number(r.total || 0),
+    0,
+  );
 
   const sectionStyle = { ...S.card, marginBottom: 20 };
   const sectionHeader = {
@@ -94,16 +113,36 @@ export default function DashboardPage({ orders, debtors, finance, production, pr
         Данные на {today}
       </div>
       <div style={isMobile ? S.kpiGridMobile : S.kpiGrid}>
-        <KPI label="Продажи сегодня" value={fmtM(salesToday)} color="var(--accent)" />
-        <KPI label="Продажи за месяц" value={fmtM(salesMonth)} color="var(--accent)" />
+        <KPI
+          label="Продажи сегодня"
+          value={fmtM(salesToday)}
+          color="var(--accent)"
+        />
+        <KPI
+          label="Продажи за месяц"
+          value={fmtM(salesMonth)}
+          color="var(--accent)"
+        />
         <KPI
           label="Прибыль за месяц"
           value={fmtM(profitMonth)}
           color={profitMonth >= 0 ? "var(--green)" : "var(--red)"}
         />
-        <KPI label="Общая дебиторка" value={fmtM(totalDebt)} color="var(--red)" />
-        <KPI label="К производству сегодня" value={`${fmt(producedToday)} шт.`} color="var(--purple)" />
-        <KPI label="Должников" value={debtorsArr.length} color="var(--yellow)" />
+        <KPI
+          label="Общая дебиторка"
+          value={fmtM(totalDebt)}
+          color="var(--red)"
+        />
+        <KPI
+          label="К производству сегодня"
+          value={`${fmt(producedToday)} шт.`}
+          color="var(--purple)"
+        />
+        <KPI
+          label="Должников"
+          value={debtorsArr.length}
+          color="var(--yellow)"
+        />
       </div>
 
       <div style={sectionStyle}>
@@ -116,7 +155,9 @@ export default function DashboardPage({ orders, debtors, finance, production, pr
           )}
         </div>
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <table
+            style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}
+          >
             <thead>
               <tr style={{ background: "var(--s2)" }}>
                 {["Клиент", "Долг"].map((h) => (
@@ -127,7 +168,14 @@ export default function DashboardPage({ orders, debtors, finance, production, pr
             <tbody>
               {topDebtors.length === 0 ? (
                 <tr>
-                  <td colSpan={2} style={{ textAlign: "center", padding: 30, color: "var(--muted)" }}>
+                  <td
+                    colSpan={2}
+                    style={{
+                      textAlign: "center",
+                      padding: 30,
+                      color: "var(--muted)",
+                    }}
+                  >
                     Должников нет 🎉
                   </td>
                 </tr>
@@ -137,7 +185,12 @@ export default function DashboardPage({ orders, debtors, finance, production, pr
                     <TD>
                       <b>{r.client}</b>
                     </TD>
-                    <TD style={{ color: "var(--red)", fontFamily: "JetBrains Mono,monospace" }}>
+                    <TD
+                      style={{
+                        color: "var(--red)",
+                        fontFamily: "JetBrains Mono,monospace",
+                      }}
+                    >
                       {fmtM(r.debt)}
                     </TD>
                   </TR>
@@ -158,7 +211,9 @@ export default function DashboardPage({ orders, debtors, finance, production, pr
           )}
         </div>
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <table
+            style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}
+          >
             <thead>
               <tr style={{ background: "var(--s2)" }}>
                 {["Товар", "Всего произвести", "По рынкам"].map((h) => (
@@ -169,7 +224,14 @@ export default function DashboardPage({ orders, debtors, finance, production, pr
             <tbody>
               {todayProduction.length === 0 ? (
                 <tr>
-                  <td colSpan={3} style={{ textAlign: "center", padding: 30, color: "var(--muted)" }}>
+                  <td
+                    colSpan={3}
+                    style={{
+                      textAlign: "center",
+                      padding: 30,
+                      color: "var(--muted)",
+                    }}
+                  >
                     На сегодня заказов с доставкой нет
                   </td>
                 </tr>
@@ -177,12 +239,27 @@ export default function DashboardPage({ orders, debtors, finance, production, pr
                 todayProduction.map((r) => (
                   <TR key={r.product}>
                     <TD>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <ProductThumb src={imageByProduct[r.product]} size={28} />
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <ProductThumb
+                          src={imageByProduct[r.product]}
+                          size={28}
+                        />
                         <b>{r.product}</b>
                       </div>
                     </TD>
-                    <TD style={{ fontFamily: "JetBrains Mono,monospace", fontWeight: 700, color: "var(--accent)" }}>
+                    <TD
+                      style={{
+                        fontFamily: "JetBrains Mono,monospace",
+                        fontWeight: 700,
+                        color: "var(--accent)",
+                      }}
+                    >
                       {fmt(r.total)}
                     </TD>
                     <TD style={{ color: "var(--muted)" }}>

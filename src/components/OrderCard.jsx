@@ -5,7 +5,14 @@ import { useData, AFFECTS } from "../store/DataContext.jsx";
 import { useUI } from "../store/UIContext.jsx";
 import { updateStatus } from "../services/api.js";
 
-export function OrderCard({ group, prices, stockOutMap, onSelectClient, onOpen }) {
+export function OrderCard({
+  group,
+  prices,
+  stockOutMap,
+  notFitMap,
+  onSelectClient,
+  onOpen,
+}) {
   const { mutate } = useData();
   const { toast } = useUI();
   const [statusBusy, setStatusBusy] = useState(false);
@@ -50,17 +57,30 @@ export function OrderCard({ group, prices, stockOutMap, onSelectClient, onOpen }
 
   const hasOldBox = (rows || []).some((r) => r.oldBox);
 
-  // Сколько не хватает по каждой строке (отмечено на странице
-  // производства/развозки на дату доставки этого заказа) — тот же
-  // источник данных, что и там, просто показываем ещё и тут.
+  // Сколько не хватает по каждой строке (отмечено на странице развозки,
+  // привязано к ЭТОМУ конкретному заказу, а не просто к дате+товару —
+  // иначе два клиента, заказавшие один товар на одну дату, путались бы).
   const missingFor = (r) => {
-    if (!deliveryDate || !r.product || !stockOutMap) return 0;
+    if (!r.product || !stockOutMap) return 0;
     const qty = Number(r.paidQuantity ?? r.quantity ?? 0);
-    const missing = Number(stockOutMap.get(`${deliveryDate}::${r.product}`) || 0);
+    const missing = Number(stockOutMap.get(`${group.oid}::${r.product}`) || 0);
     return Math.min(qty, missing);
   };
 
   const hasStockOut = (rows || []).some((r) => missingFor(r) > 0);
+
+  // "Не поместилось" — товар БЫЛ в наличии, но физически не увезли
+  // (не хватило места в развозке). Отдельная от "не хватает" отметка —
+  // своя карта по ID заказа+товару, но так же не должна входить в итог/долг.
+  const notFitFor = (r) => {
+    if (!r.product || !notFitMap) return 0;
+    const qty = Number(r.paidQuantity ?? r.quantity ?? 0);
+    const remaining = Math.max(0, qty - missingFor(r));
+    const notFit = Number(notFitMap.get(`${group.oid}::${r.product}`) || 0);
+    return Math.min(remaining, notFit);
+  };
+
+  const hasNotFit = (rows || []).some((r) => notFitFor(r) > 0);
 
   // На сколько сумма заказа уменьшается из-за нехватки товара —
   // недостающие штуки не должны входить ни в итог, ни в долг клиента.
@@ -68,11 +88,18 @@ export function OrderCard({ group, prices, stockOutMap, onSelectClient, onOpen }
     (s, r) => s + missingFor(r) * Number(r.price || 0),
     0,
   );
+  const notFitDeduction = (rows || []).reduce(
+    (s, r) => s + notFitFor(r) * Number(r.price || 0),
+    0,
+  );
 
-  // Сумма заказа после возвратов и недостачи
+  // Сумма заказа после возвратов, недостачи и "не поместилось"
   const effectiveTotal = Math.max(
     0,
-    Number(totalSum || 0) - Number(returnedAmount || 0) - stockOutDeduction,
+    Number(totalSum || 0) -
+      Number(returnedAmount || 0) -
+      stockOutDeduction -
+      notFitDeduction,
   );
 
   // Обычная оплата
@@ -102,6 +129,7 @@ export function OrderCard({ group, prices, stockOutMap, onSelectClient, onOpen }
 
   const hasReturn = Number(returnedAmount || 0) > 0;
   const hasStockOutDeduction = stockOutDeduction > 0;
+  const hasNotFitDeduction = notFitDeduction > 0;
 
   // Цвет карточки
   let borderColor;
@@ -236,6 +264,23 @@ export function OrderCard({ group, prices, stockOutMap, onSelectClient, onOpen }
               🚫 не хватает товара
             </span>
           )}
+
+          {hasNotFit && (
+            <span
+              title="В заказе есть товар, который был в наличии, но не поместился в развозку"
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: "var(--purple)",
+                background: "rgba(163,113,247,.14)",
+                border: "1px solid rgba(163,113,247,0.4)",
+                borderRadius: 6,
+                padding: "2px 7px",
+              }}
+            >
+              📦 не поместилось
+            </span>
+          )}
         </div>
 
         <div
@@ -274,7 +319,9 @@ export function OrderCard({ group, prices, stockOutMap, onSelectClient, onOpen }
             title="Переключить статус доставки"
             style={{
               background:
-                status === "Доставлен" ? "rgba(210,153,34,0.12)" : "rgba(63,185,80,0.12)",
+                status === "Доставлен"
+                  ? "rgba(210,153,34,0.12)"
+                  : "rgba(63,185,80,0.12)",
               border: `1px solid ${status === "Доставлен" ? "#d29922" : "var(--green)"}55`,
               borderRadius: 7,
               padding: "4px 10px",
@@ -381,10 +428,14 @@ export function OrderCard({ group, prices, stockOutMap, onSelectClient, onOpen }
             {rows.map((r, i) => {
               const qty = Number(r.paidQuantity ?? r.quantity ?? 0);
               const missingQty = missingFor(r);
+              const notFitQty = notFitFor(r);
               const isOut = missingQty > 0;
-              const isFullyOut = isOut && missingQty >= qty;
-              const availableQty = Math.max(0, qty - missingQty);
+              const isRowNotFit = notFitQty > 0;
+              const isShort = isOut || isRowNotFit;
+              const isFullyOut = isShort && missingQty + notFitQty >= qty;
+              const availableQty = Math.max(0, qty - missingQty - notFitQty);
               const availableSum = availableQty * Number(r.price || 0);
+              const shortColor = isOut ? "var(--red)" : "var(--purple)";
 
               return (
                 <tr
@@ -420,7 +471,11 @@ export function OrderCard({ group, prices, stockOutMap, onSelectClient, onOpen }
                       {r.oldBox && (
                         <span
                           title="Своя тара"
-                          style={{ fontSize: 11, color: "#d29922", fontWeight: 600 }}
+                          style={{
+                            fontSize: 11,
+                            color: "#d29922",
+                            fontWeight: 600,
+                          }}
                         >
                           📦
                           {r.oldBoxColor === "white"
@@ -445,7 +500,27 @@ export function OrderCard({ group, prices, stockOutMap, onSelectClient, onOpen }
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {isFullyOut ? "🚫 нет в наличии" : `🚫 не хватает: ${missingQty}`}
+                          {isOut && missingQty >= qty
+                            ? "🚫 нет в наличии"
+                            : `🚫 не хватает: ${missingQty}`}
+                        </span>
+                      )}
+                      {isRowNotFit && (
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                            padding: "2px 7px",
+                            borderRadius: 20,
+                            fontSize: 10.5,
+                            fontWeight: 700,
+                            background: "rgba(163,113,247,.14)",
+                            color: "var(--purple)",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          📦 не поместилось: {notFitQty}
                         </span>
                       )}
                     </div>
@@ -458,10 +533,22 @@ export function OrderCard({ group, prices, stockOutMap, onSelectClient, onOpen }
                       fontSize: 12.5,
                     }}
                   >
-                    {isOut ? (
-                      <span style={{ display: "inline-flex", flexDirection: "column", lineHeight: 1.3 }}>
-                        <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                          <span style={{ color: "var(--red)", fontWeight: 700 }}>
+                    {isShort ? (
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          flexDirection: "column",
+                          lineHeight: 1.3,
+                        }}
+                      >
+                        <span
+                          style={{
+                            display: "flex",
+                            alignItems: "baseline",
+                            gap: 6,
+                          }}
+                        >
+                          <span style={{ color: shortColor, fontWeight: 700 }}>
                             {availableQty}
                           </span>
                           <span
@@ -495,7 +582,7 @@ export function OrderCard({ group, prices, stockOutMap, onSelectClient, onOpen }
                       fontWeight: 600,
                     }}
                   >
-                    {isOut ? (
+                    {isShort ? (
                       <span
                         style={{
                           display: "inline-flex",
@@ -504,7 +591,7 @@ export function OrderCard({ group, prices, stockOutMap, onSelectClient, onOpen }
                           lineHeight: 1.3,
                         }}
                       >
-                        <span style={{ color: "var(--red)" }}>
+                        <span style={{ color: shortColor }}>
                           <MoneyCell n={availableSum} />
                         </span>
                         <span
@@ -620,9 +707,33 @@ export function OrderCard({ group, prices, stockOutMap, onSelectClient, onOpen }
             </div>
           )}
 
+          {/* Не поместилось (есть, но не увезли) */}
+
+          {hasNotFitDeduction && (
+            <div style={{ fontSize: 12 }}>
+              <span
+                style={{
+                  color: "var(--muted)",
+                }}
+              >
+                Не поместилось:{" "}
+              </span>
+
+              <span
+                style={{
+                  fontFamily: "JetBrains Mono,monospace",
+                  color: "var(--purple)",
+                  fontWeight: 600,
+                }}
+              >
+                −{fmtM(notFitDeduction)}
+              </span>
+            </div>
+          )}
+
           {/* К оплате */}
 
-          {(hasReturn || hasStockOutDeduction) && (
+          {(hasReturn || hasStockOutDeduction || hasNotFitDeduction) && (
             <div style={{ fontSize: 12 }}>
               <span
                 style={{
