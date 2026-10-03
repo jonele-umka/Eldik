@@ -53,6 +53,37 @@ export const ENDPOINTS = {
 
 const ALL_KEYS = Object.keys(ENDPOINTS);
 
+// Apps Script ограничивает число ОДНОВРЕМЕННЫХ запросов к одному и тому
+// же скрипту. Раньше refresh() при каждом открытии/обновлении отправлял
+// сразу ~25 параллельных запросов (по одному на каждую таблицу) — часть
+// из них Google обрывал на середине (в консоли это видно как
+// ERR_CONNECTION_CLOSED), и та таблица просто не обновлялась в этот раз
+// (старые данные оставались как есть — не критично, но раздражает).
+// Теперь запросы идут небольшими пачками, и один сбойный запрос
+// повторяется ещё раз — почти всегда обрыв разовый, а не настоящая
+// ошибка на сервере.
+const FETCH_CONCURRENCY = 5;
+
+async function fetchKey(key) {
+  try {
+    return { key, d: await apiGet(ENDPOINTS[key]) };
+  } catch (err) {
+    // Один повтор — специально БЕЗ задержки: обрыв соединения из-за
+    // перегрузки обычно освобождается уже к следующей попытке.
+    return { key, d: await apiGet(ENDPOINTS[key]) };
+  }
+}
+
+async function fetchKeysInBatches(list) {
+  const results = [];
+  for (let i = 0; i < list.length; i += FETCH_CONCURRENCY) {
+    const batch = list.slice(i, i + FETCH_CONCURRENCY);
+    const settled = await Promise.allSettled(batch.map(fetchKey));
+    results.push(...settled);
+  }
+  return results;
+}
+
 const DataContext = createContext(null);
 export const useData = () => useContext(DataContext);
 
@@ -101,9 +132,7 @@ export function DataProvider({ apiUrl, children }) {
         setLoading(true);
       }
 
-      const results = await Promise.allSettled(
-        list.map((key) => apiGet(ENDPOINTS[key]).then((d) => ({ key, d }))),
-      );
+      const results = await fetchKeysInBatches(list);
 
       const patch = {};
       results.forEach((r) => {
@@ -183,14 +212,50 @@ export function DataProvider({ apiUrl, children }) {
   // Обёртка для мутаций: выполняет запрос и обновляет только нужные таблицы.
   // Пока идёт сохранение/удаление/правка — mutating > 0, чтобы UI мог
   // заблокировать интерфейс (не только при первой загрузке всего сайта).
+  //
+  // optimisticPatch (необязательный 3-й аргумент) — функция (prevData) =>
+  // newData, которая применяется СРАЗУ, не дожидаясь ответа Apps Script.
+  // Нужна там, где каждый клик иначе ощущается как "подвис" (отметить
+  // статус доставки, не хватает/не поместилось, добавить оплату, удалить
+  // заказ) — сам запрос к серверу всё равно идёт, просто в фоне, и если он
+  // провалится — локальное изменение откатывается обратно. Сервер остаётся
+  // источником истины: после успеха всё равно тихо (silent) подтягиваем
+  // актуальные данные, чтобы подхватить то, что досчитал бэкенд (реальный
+  // ID, итоговые суммы и т.п.), а не только наш локальный "черновик".
   const mutate = useCallback(
-    async (fn, keys = []) => {
-      setMutating((n) => n + 1);
+    async (fn, keys = [], optimisticPatch) => {
+      let prevData;
+      if (optimisticPatch) {
+        setData((prev) => {
+          prevData = prev;
+          const next = optimisticPatch(prev);
+          writeCache(next);
+          return next;
+        });
+      }
+
+      // Полноэкранная блокировка "Сохранение..." — только когда НЕТ
+      // оптимистичного патча. Если он есть, экран уже и так показывает
+      // нужный результат, и блокировать его поверх смысла нет — это и
+      // сводило на нет весь эффект мгновенного отклика (клик — мгновенно
+      // меняется отметка, но тут же сверху всплывает "Сохранение..." и
+      // ждёт тот же самый запрос к серверу).
+      if (!optimisticPatch) setMutating((n) => n + 1);
       try {
         const res = await fn();
-        if (keys.length) await refresh(keys);
+        if (keys.length) {
+          // silent, чтобы не включать общий индикатор загрузки — экран уже
+          // показывает нужный результат оптимистично (если он был).
+          await refresh(keys, { silent: !!optimisticPatch });
+        }
         return res;
       } catch (err) {
+        // Откатываем локальный "черновик", если он был — сервер сказал,
+        // что не сохранилось.
+        if (optimisticPatch && prevData) {
+          setData(prevData);
+          writeCache(prevData);
+        }
         // Google Apps Script иногда отвечает ошибкой (например, 404) уже
         // ПОСЛЕ того, как сама операция на сервере отработала — рвётся
         // только доставка ответа обратно, не само сохранение. Поэтому
@@ -206,10 +271,10 @@ export function DataProvider({ apiUrl, children }) {
         }
         throw err;
       } finally {
-        setMutating((n) => Math.max(0, n - 1));
+        if (!optimisticPatch) setMutating((n) => Math.max(0, n - 1));
       }
     },
-    [refresh],
+    [refresh, writeCache],
   );
 
   const value = useMemo(

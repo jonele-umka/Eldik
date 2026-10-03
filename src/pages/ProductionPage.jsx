@@ -545,7 +545,7 @@ function ProductionView({
   // Заказы конкретного товара на конкретную дату — для раскрывающейся расшифровки.
   const ordersByDateProduct = useMemo(() => {
     const m = {};
-    (orders || []).forEach((o) => {
+    (Array.isArray(orders) ? orders : []).forEach((o) => {
       if (!o.deliveryDate || !o.product) return;
       const key = `${o.deliveryDate}::${o.product}`;
       if (!m[key]) m[key] = [];
@@ -971,7 +971,7 @@ function DeliveryView({
 
   const addressByClient = useMemo(() => {
     const m = {};
-    (clients || []).forEach((c) => {
+    (Array.isArray(clients) ? clients : []).forEach((c) => {
       if (c.name) m[norm(c.name)] = c.address || "";
     });
     return m;
@@ -1335,7 +1335,19 @@ export function ProductionDeliveryPage({
   const handleToggleStatus = async (oid, nextStatus) => {
     setStatusBusy((prev) => new Set(prev).add(oid));
     try {
-      await mutate(() => updateStatus(oid, nextStatus), ["orders"]);
+      await mutate(
+        () => updateStatus(oid, nextStatus),
+        ["orders"],
+        (prev) => {
+          const list = Array.isArray(prev.orders) ? prev.orders : [];
+          return {
+            ...prev,
+            orders: list.map((r) =>
+              r.orderId === oid ? { ...r, status: nextStatus } : r,
+            ),
+          };
+        },
+      );
       toast(`Статус: ${nextStatus}`, "ok");
     } catch (e) {
       toast(e.message, "err");
@@ -1354,7 +1366,27 @@ export function ProductionDeliveryPage({
     const key = `${orderId}::${product}`;
     setStockOutBusy((prev) => new Set(prev).add(key));
     try {
-      await mutate(() => setStockOut(orderId, product, qty), ["stockOuts"]);
+      await mutate(
+        () => setStockOut(orderId, product, qty),
+        ["stockOuts"],
+        (prev) => {
+          const list = Array.isArray(prev.stockOuts) ? prev.stockOuts : [];
+          const idx = list.findIndex(
+            (r) => r.orderId === orderId && r.product === product,
+          );
+          let nextList;
+          if (qty > 0) {
+            const entry = { orderId, product, qty };
+            nextList =
+              idx >= 0
+                ? list.map((r, i) => (i === idx ? entry : r))
+                : [...list, entry];
+          } else {
+            nextList = idx >= 0 ? list.filter((_, i) => i !== idx) : list;
+          }
+          return { ...prev, stockOuts: nextList };
+        },
+      );
       toast(qty > 0 ? `Не хватает: ${qty} шт` : "Отметка снята", "ok");
     } catch (e) {
       toast(e.message, "err");
@@ -1371,7 +1403,27 @@ export function ProductionDeliveryPage({
     const key = `${orderId}::${product}`;
     setNotFitBusy((prev) => new Set(prev).add(key));
     try {
-      await mutate(() => setNotFit(orderId, product, qty), ["notFits"]);
+      await mutate(
+        () => setNotFit(orderId, product, qty),
+        ["notFits"],
+        (prev) => {
+          const list = Array.isArray(prev.notFits) ? prev.notFits : [];
+          const idx = list.findIndex(
+            (r) => r.orderId === orderId && r.product === product,
+          );
+          let nextList;
+          if (qty > 0) {
+            const entry = { orderId, product, qty };
+            nextList =
+              idx >= 0
+                ? list.map((r, i) => (i === idx ? entry : r))
+                : [...list, entry];
+          } else {
+            nextList = idx >= 0 ? list.filter((_, i) => i !== idx) : list;
+          }
+          return { ...prev, notFits: nextList };
+        },
+      );
       toast(qty > 0 ? `Не поместилось: ${qty} шт` : "Отметка снята", "ok");
     } catch (e) {
       toast(e.message, "err");

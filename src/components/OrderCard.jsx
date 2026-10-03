@@ -19,7 +19,7 @@ export function OrderCard({
 
   const imageByProduct = useMemo(() => {
     const m = {};
-    (prices || []).forEach((p) => {
+    (Array.isArray(prices) ? prices : []).forEach((p) => {
       if (p.product) m[p.product] = p.image || "";
     });
     return m;
@@ -30,7 +30,19 @@ export function OrderCard({
     const next = group.status === "Доставлен" ? "Новый" : "Доставлен";
     try {
       setStatusBusy(true);
-      await mutate(() => updateStatus(group.oid, next), AFFECTS.order);
+      await mutate(
+        () => updateStatus(group.oid, next),
+        AFFECTS.order,
+        (prev) => {
+          const list = Array.isArray(prev.orders) ? prev.orders : [];
+          return {
+            ...prev,
+            orders: list.map((r) =>
+              r.orderId === group.oid ? { ...r, status: next } : r,
+            ),
+          };
+        },
+      );
       toast(`Статус: ${next}`, "ok");
     } catch (err) {
       toast(err.message, "err");

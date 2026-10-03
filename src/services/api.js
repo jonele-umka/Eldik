@@ -20,7 +20,18 @@ export function getApiUrl() {
 export async function apiGet(action) {
   const res = await fetch(`${BASE_URL}?action=${action}&_t=${Date.now()}`);
   if (!res.ok) throw new Error("HTTP " + res.status);
-  return res.json();
+  const data = await res.json();
+  // Если бэкенд вернул {success:false, error:...} (например, лист не
+  // найден или ошибка в скрипте) — раньше это тихо попадало в кэш как
+  // "данные" этой таблицы (объект вместо массива), и потом страницы
+  // падали на (x || []).forEach/reduce, потому что x был не массивом, а
+  // этим объектом с ошибкой. Теперь считаем такой ответ провалившимся
+  // запросом, как и apiPost — тогда DataContext просто не обновит эту
+  // таблицу и оставит прежнее (рабочее) значение.
+  if (data && data.success === false) {
+    throw new Error(data.error || "Ошибка сервера");
+  }
+  return data;
 }
 
 export async function apiPost(body) {

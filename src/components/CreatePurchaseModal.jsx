@@ -13,7 +13,11 @@ import { fmt, fmtM, parseQtyExpr } from "../utils/index.js";
 import { norm } from "../utils/ledger.js";
 import { useData, AFFECTS } from "../store/DataContext.jsx";
 import { useUI } from "../store/UIContext.jsx";
-import { saveSupplier, savePurchase, saveRawMaterial } from "../services/api.js";
+import {
+  saveSupplier,
+  savePurchase,
+  saveRawMaterial,
+} from "../services/api.js";
 
 // Подсказки-товары поставщика собираются из истории покупок, но иногда
 // туда попадает товар, добавленный по ошибке (не тот поставщик). Явно
@@ -78,7 +82,9 @@ export default function CreatePurchaseModal({ open, onClose, suppliers }) {
   const { data, refresh } = useData();
   const { toast } = useUI();
 
-  const rawMaterials = Array.isArray(data.rawMaterials) ? data.rawMaterials : [];
+  const rawMaterials = Array.isArray(data.rawMaterials)
+    ? data.rawMaterials
+    : [];
   const purchases = Array.isArray(data.purchases) ? data.purchases : [];
   const knownProductNames = useMemo(
     () => new Set(rawMaterials.map((r) => norm(r.name))),
@@ -95,7 +101,9 @@ export default function CreatePurchaseModal({ open, onClose, suppliers }) {
   const [saving, setSaving] = useState(false);
   const [hiddenChips, setHiddenChips] = useState(loadHiddenChips);
 
-  const names = (suppliers || []).map((s) => s.name).filter(Boolean);
+  const names = (Array.isArray(suppliers) ? suppliers : [])
+    .map((s) => s.name)
+    .filter(Boolean);
   const currentSupplier = (mode === "new" ? newSupplier : supplier).trim();
 
   // Что этот поставщик обычно привозит — по истории поступлений (Закупки
@@ -125,7 +133,10 @@ export default function CreatePurchaseModal({ open, onClose, suppliers }) {
   // показываем весь справочник сырья, чтобы быстрый выбор всё равно работал.
   const quickProducts = supplierProducts.length
     ? supplierProducts
-    : rawMaterials.map((r) => r.name).filter(Boolean).slice(0, 12);
+    : rawMaterials
+        .map((r) => r.name)
+        .filter(Boolean)
+        .slice(0, 12);
 
   // Убрать товар из подсказок этого поставщика (например, добавили по
   // ошибке) — саму историю покупок не трогаем, только скрываем чип.
@@ -165,7 +176,8 @@ export default function CreatePurchaseModal({ open, onClose, suppliers }) {
           if (known) {
             next.price = String(known);
             const computed = autoSum(next);
-            if (computed !== null && !next.sumTouched) next.sum = String(computed);
+            if (computed !== null && !next.sumTouched)
+              next.sum = String(computed);
           }
         }
 
@@ -178,7 +190,11 @@ export default function CreatePurchaseModal({ open, onClose, suppliers }) {
   // подряд несколько обычных позиций этого поставщика.
   const quickAddProduct = (name) => {
     const known = rawByName[norm(name)];
-    const filled = { ...newItem(), product: name, price: known ? String(known) : "" };
+    const filled = {
+      ...newItem(),
+      product: name,
+      price: known ? String(known) : "",
+    };
     setItems((prev) => {
       const idx = prev.findIndex((it) => !it.product.trim());
       if (idx !== -1) {
@@ -226,7 +242,10 @@ export default function CreatePurchaseModal({ open, onClose, suppliers }) {
         // Без веса — как раньше: количество как есть, по умолчанию 1, а
         // цена за единицу и есть то, что вписали.
         const qty = totalQty(it);
-        const price = qty > 0 ? Math.round((sum / qty) * 100) / 100 : Number(it.price) || sum;
+        const price =
+          qty > 0
+            ? Math.round((sum / qty) * 100) / 100
+            : Number(it.price) || sum;
         const kgNum = Number(it.kg) || 0;
         // Кол-во (мешков) тоже сохраняем в комментарий — иначе при
         // редактировании неоткуда достать исходное число, только итог
@@ -252,7 +271,10 @@ export default function CreatePurchaseModal({ open, onClose, suppliers }) {
         // чтобы в следующий раз он сразу был под рукой в подсказках,
         // без отдельного похода в «Настройки».
         const productKey = norm(it.product);
-        if (!knownProductNames.has(productKey) && !registeredNow.has(productKey)) {
+        if (
+          !knownProductNames.has(productKey) &&
+          !registeredNow.has(productKey)
+        ) {
           registeredNow.add(productKey);
           try {
             await saveRawMaterial({ name: it.product.trim(), price });
@@ -275,7 +297,11 @@ export default function CreatePurchaseModal({ open, onClose, suppliers }) {
       // на сервере отработала — обновляем данные и при ошибке, чтобы
       // сразу было видно, сохранилось ли на самом деле.
       try {
-        await refresh([...AFFECTS.purchase, ...AFFECTS.supplier, ...AFFECTS.raw]);
+        await refresh([
+          ...AFFECTS.purchase,
+          ...AFFECTS.supplier,
+          ...AFFECTS.raw,
+        ]);
       } catch {
         /* не критично */
       }
@@ -371,7 +397,9 @@ export default function CreatePurchaseModal({ open, onClose, suppliers }) {
         Что привезли
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+      <div
+        style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}
+      >
         <button
           type="button"
           onClick={addItem}
@@ -467,7 +495,14 @@ export default function CreatePurchaseModal({ open, onClose, suppliers }) {
             marginBottom: 8,
           }}
         >
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              alignItems: "flex-end",
+            }}
+          >
             <div style={{ flex: 2, minWidth: 140 }}>
               <Field label={i === 0 ? "Товар" : null}>
                 <TextInput
@@ -483,14 +518,23 @@ export default function CreatePurchaseModal({ open, onClose, suppliers }) {
                 <TextInput
                   placeholder="100х50"
                   value={it.quantity}
-                  onChange={(e) => setItem(it.key, { quantity: e.target.value })}
+                  onChange={(e) =>
+                    setItem(it.key, { quantity: e.target.value })
+                  }
                 />
                 {/* Если вписали "100х50" — сразу видно, что посчиталось */}
-                {/[x×хX*]/.test(it.quantity) && parseQtyExpr(it.quantity) > 0 && (
-                  <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 3 }}>
-                    = {parseQtyExpr(it.quantity)}
-                  </div>
-                )}
+                {/[x×хX*]/.test(it.quantity) &&
+                  parseQtyExpr(it.quantity) > 0 && (
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: "var(--muted)",
+                        marginTop: 3,
+                      }}
+                    >
+                      = {parseQtyExpr(it.quantity)}
+                    </div>
+                  )}
               </Field>
             </div>
             <div style={{ width: 74 }}>
@@ -503,7 +547,13 @@ export default function CreatePurchaseModal({ open, onClose, suppliers }) {
                 />
                 {/* Кол-во 100 × вес 50 кг (1 мешок) = 5000 кг всего */}
                 {Number(it.kg) > 0 && parseQtyExpr(it.quantity) > 0 && (
-                  <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 3 }}>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "var(--muted)",
+                      marginTop: 3,
+                    }}
+                  >
                     = {fmt(parseQtyExpr(it.quantity) * Number(it.kg))} кг
                   </div>
                 )}
@@ -556,8 +606,12 @@ export default function CreatePurchaseModal({ open, onClose, suppliers }) {
             fontSize: 13,
           }}
         >
-          <span style={{ color: "var(--muted)", marginRight: 8 }}>Итого поступление:</span>
-          <b style={{ fontFamily: "JetBrains Mono, monospace" }}>{fmtM(totalSum)}</b>
+          <span style={{ color: "var(--muted)", marginRight: 8 }}>
+            Итого поступление:
+          </span>
+          <b style={{ fontFamily: "JetBrains Mono, monospace" }}>
+            {fmtM(totalSum)}
+          </b>
         </div>
       )}
     </Modal>

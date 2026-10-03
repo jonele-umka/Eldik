@@ -373,7 +373,27 @@ export default function OrderDetailModal({ group, onClose }) {
     const key = `${group.oid}::${product}`;
     setStockOutBusy((prev) => new Set(prev).add(key));
     try {
-      await mutate(() => setStockOut(group.oid, product, qty), ["stockOuts"]);
+      await mutate(
+        () => setStockOut(group.oid, product, qty),
+        ["stockOuts"],
+        (prev) => {
+          const list = Array.isArray(prev.stockOuts) ? prev.stockOuts : [];
+          const idx = list.findIndex(
+            (r) => r.orderId === group.oid && r.product === product,
+          );
+          let nextList;
+          if (qty > 0) {
+            const entry = { orderId: group.oid, product, qty };
+            nextList =
+              idx >= 0
+                ? list.map((r, i) => (i === idx ? entry : r))
+                : [...list, entry];
+          } else {
+            nextList = idx >= 0 ? list.filter((_, i) => i !== idx) : list;
+          }
+          return { ...prev, stockOuts: nextList };
+        },
+      );
       toast(
         qty > 0
           ? `Не хватает: ${qty} шт`
@@ -397,7 +417,27 @@ export default function OrderDetailModal({ group, onClose }) {
     const key = `${group.oid}::${product}`;
     setNotFitBusy((prev) => new Set(prev).add(key));
     try {
-      await mutate(() => setNotFit(group.oid, product, qty), ["notFits"]);
+      await mutate(
+        () => setNotFit(group.oid, product, qty),
+        ["notFits"],
+        (prev) => {
+          const list = Array.isArray(prev.notFits) ? prev.notFits : [];
+          const idx = list.findIndex(
+            (r) => r.orderId === group.oid && r.product === product,
+          );
+          let nextList;
+          if (qty > 0) {
+            const entry = { orderId: group.oid, product, qty };
+            nextList =
+              idx >= 0
+                ? list.map((r, i) => (i === idx ? entry : r))
+                : [...list, entry];
+          } else {
+            nextList = idx >= 0 ? list.filter((_, i) => i !== idx) : list;
+          }
+          return { ...prev, notFits: nextList };
+        },
+      );
       toast(
         qty > 0 ? `Не поместилось: ${qty} шт` : "Отметка снята — увезли",
         "ok",
@@ -521,7 +561,19 @@ export default function OrderDetailModal({ group, onClose }) {
     const next = status === "Доставлен" ? "Новый" : "Доставлен";
     try {
       setBusy(true);
-      await mutate(() => updateStatus(group.oid, next), ["orders"]);
+      await mutate(
+        () => updateStatus(group.oid, next),
+        ["orders"],
+        (prev) => {
+          const list = Array.isArray(prev.orders) ? prev.orders : [];
+          return {
+            ...prev,
+            orders: list.map((r) =>
+              r.orderId === group.oid ? { ...r, status: next } : r,
+            ),
+          };
+        },
+      );
       setStatus(next);
       toast(`Статус: ${next}`, "ok");
     } catch (e) {

@@ -31,7 +31,7 @@ import SupplierDetailPage from "./pages/SupplierDetailPage.jsx";
 import { DataProvider, useData } from "./store/DataContext.jsx";
 import { Spinner as UISpinner } from "./components/UI.jsx";
 import { UIProvider } from "./store/UIContext.jsx";
-
+import logo from "./assets/img/logoHor.png";
 const norm = (s) =>
   String(s || "")
     .trim()
@@ -71,7 +71,9 @@ function firstAllowedPage(allowed) {
 function Sidebar({ page, setPage, setSearch, updatedAt, pages }) {
   return (
     <aside style={S.sidebar}>
-      <div style={S.logo}>📦 Бизнес</div>
+      <div style={S.logo}>
+        <img style={{width: '100%', maxWidth: 150}} src={logo} alt="logo" />
+      </div>
       <nav style={S.nav}>
         {pages.map((p) => (
           <NavItem
@@ -396,7 +398,8 @@ export default function App() {
 }
 
 function Shell() {
-  const { data, ready, loading, mutating, updatedAt, boot, refreshAll } = useData();
+  const { data, ready, loading, mutating, updatedAt, boot, refreshAll } =
+    useData();
 
   const [user, setUser] = useState(() => getStoredUser());
   const [page, setPage] = useState(() =>
@@ -536,9 +539,10 @@ function Shell() {
             offsets={data.offsets}
             openingBalances={data.openingBalances}
             debtors={data.debtors}
-            debtRow={(data.suppliersDebt || []).find(
-              (d) => norm(d.supplier) === norm(selectedSupplier),
-            )}
+            debtRow={(Array.isArray(data.suppliersDebt)
+              ? data.suppliersDebt
+              : []
+            ).find((d) => norm(d.supplier) === norm(selectedSupplier))}
             onBack={() => setPage(supplierReturnPage)}
           />
         );
@@ -559,7 +563,7 @@ function Shell() {
             returns={data.returns}
             offsets={data.offsets}
             openingBalances={data.openingBalances}
-            debtRow={(data.debtors || []).find(
+            debtRow={(Array.isArray(data.debtors) ? data.debtors : []).find(
               (d) => norm(d.client) === norm(selectedClient),
             )}
             isMobile={isMobile}
@@ -585,7 +589,9 @@ function Shell() {
           />
         );
       case "catalog":
-        return <CatalogPage data={data.prices} search={search} isMobile={isMobile} />;
+        return (
+          <CatalogPage data={data.prices} search={search} isMobile={isMobile} />
+        );
       case "settings":
         return <SettingsPage user={user} onLogout={handleLogout} />;
       default:

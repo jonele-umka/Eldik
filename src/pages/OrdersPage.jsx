@@ -161,7 +161,7 @@ export default function OrdersPage({
     return s + Math.max(0, effectiveTotal - paid);
   }, 0);
 
-  const totalExpenses = (expenses || []).reduce(
+  const totalExpenses = (Array.isArray(expenses) ? expenses : []).reduce(
     (s, r) => s + Number(r.amount || 0),
     0,
   );
