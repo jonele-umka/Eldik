@@ -87,11 +87,18 @@ function release() {
 async function requestKey(key) {
   await acquire();
   try {
-    try {
-      return await apiGet(ENDPOINTS[key]);
-    } catch {
-      await new Promise((r) => setTimeout(r, 700));
-      return await apiGet(ENDPOINTS[key]);
+    // До 3 попыток с нарастающей паузой. Типичный случай: вкладка долго
+    // простояла (или компьютер спал), браузер берёт из пула старое
+    // соединение, которое Google уже закрыл — первый запрос падает с
+    // ERR_CONNECTION_CLOSED, а повтор идёт по новому соединению и проходит.
+    const pauses = [700, 2000];
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await apiGet(ENDPOINTS[key]);
+      } catch (err) {
+        if (attempt >= pauses.length) throw err;
+        await new Promise((r) => setTimeout(r, pauses[attempt]));
+      }
     }
   } finally {
     release();
