@@ -102,7 +102,13 @@ export function ReturnsPage({ data, search }) {
       );
       toast("Возврат сохранён", "ok");
       setOpen(false);
-      setForm({ market: "", client: "", product: "", quantity: "1", comment: "" });
+      setForm({
+        market: "",
+        client: "",
+        product: "",
+        quantity: "1",
+        comment: "",
+      });
     } catch (e) {
       toast(e.message, "err");
     } finally {
@@ -114,7 +120,11 @@ export function ReturnsPage({ data, search }) {
     <>
       <div style={S.kpiGrid}>
         <KPI label="Возвратов" value={filtered.length} color="var(--yellow)" />
-        <KPI label="Сумма возвратов" value={fmtM(total)} color="var(--yellow)" />
+        <KPI
+          label="Сумма возвратов"
+          value={fmtM(total)}
+          color="var(--yellow)"
+        />
       </div>
 
       <Toolbar style={{ justifyContent: "flex-end" }}>
@@ -134,7 +144,14 @@ export function ReturnsPage({ data, search }) {
         <tbody>
           {filtered.length === 0 ? (
             <tr>
-              <td colSpan={6} style={{ textAlign: "center", padding: 40, color: "var(--muted)" }}>
+              <td
+                colSpan={6}
+                style={{
+                  textAlign: "center",
+                  padding: 40,
+                  color: "var(--muted)",
+                }}
+              >
                 Нет данных
               </td>
             </tr>
@@ -149,7 +166,12 @@ export function ReturnsPage({ data, search }) {
                 </TD>
                 <TD>{r.product}</TD>
                 <TD>
-                  <span style={{ fontFamily: "JetBrains Mono,monospace", fontSize: 12.5 }}>
+                  <span
+                    style={{
+                      fontFamily: "JetBrains Mono,monospace",
+                      fontSize: 12.5,
+                    }}
+                  >
                     {r.quantity}
                   </span>
                 </TD>
@@ -172,7 +194,11 @@ export function ReturnsPage({ data, search }) {
         subtitle="Без привязки к конкретному заказу"
         footer={
           <>
-            <Btn variant="ghost" onClick={() => setOpen(false)} disabled={saving}>
+            <Btn
+              variant="ghost"
+              onClick={() => setOpen(false)}
+              disabled={saving}
+            >
               Отмена
             </Btn>
             <Btn variant="warn" onClick={save} loading={saving}>
@@ -209,7 +235,9 @@ export function ReturnsPage({ data, search }) {
           <TextInput
             inputMode="numeric"
             value={form.quantity}
-            onChange={(e) => setForm({ ...form, quantity: e.target.value.replace(/\D/g, "") })}
+            onChange={(e) =>
+              setForm({ ...form, quantity: e.target.value.replace(/\D/g, "") })
+            }
           />
         </Field>
       </Modal>
@@ -242,7 +270,13 @@ export function ExpensesPage({ data, search }) {
   const total = filtered.reduce((s, r) => s + Number(r.amount || 0), 0);
 
   const openAdd = () =>
-    setEditing({ id: null, date: todayString(), category: "", amount: "", comment: "" });
+    setEditing({
+      id: null,
+      date: todayString(),
+      category: "",
+      amount: "",
+      comment: "",
+    });
 
   const save = async () => {
     if (!editing.category.trim()) return toast("Укажите категорию", "err");
@@ -300,7 +334,11 @@ export function ExpensesPage({ data, search }) {
   return (
     <>
       <div style={S.kpiGrid}>
-        <KPI label="Записей расходов" value={filtered.length} color="var(--red)" />
+        <KPI
+          label="Записей расходов"
+          value={filtered.length}
+          color="var(--red)"
+        />
         <KPI label="Сумма расходов" value={fmtM(total)} color="var(--red)" />
       </div>
 
@@ -320,7 +358,13 @@ export function ExpensesPage({ data, search }) {
           <Btn
             variant="ghost"
             onClick={() =>
-              setEditing({ id: null, date: todayString(), category: "Коммуналка", amount: "", comment: "" })
+              setEditing({
+                id: null,
+                date: todayString(),
+                category: "Коммуналка",
+                amount: "",
+                comment: "",
+              })
             }
           >
             💡 Коммуналка
@@ -328,7 +372,13 @@ export function ExpensesPage({ data, search }) {
           <Btn
             variant="ghost"
             onClick={() =>
-              setEditing({ id: null, date: todayString(), category: "Зарплата", amount: "", comment: "" })
+              setEditing({
+                id: null,
+                date: todayString(),
+                category: "Зарплата",
+                amount: "",
+                comment: "",
+              })
             }
           >
             👷 Зарплата
@@ -342,7 +392,9 @@ export function ExpensesPage({ data, search }) {
       <TableWrap
         title="Расходы"
         count={`${filtered.length} записей`}
-        pagination={<Pagination total={filtered.length} page={page} onPage={setPage} />}
+        pagination={
+          <Pagination total={filtered.length} page={page} onPage={setPage} />
+        }
       >
         <thead>
           <tr style={{ background: "var(--s2)" }}>
@@ -354,14 +406,23 @@ export function ExpensesPage({ data, search }) {
         <tbody>
           {paginate(filtered, page).length === 0 ? (
             <tr>
-              <td colSpan={5} style={{ textAlign: "center", padding: 40, color: "var(--muted)" }}>
+              <td
+                colSpan={5}
+                style={{
+                  textAlign: "center",
+                  padding: 40,
+                  color: "var(--muted)",
+                }}
+              >
                 Нет данных
               </td>
             </tr>
           ) : (
             paginate(filtered, page).map((r, i) => (
               <TR key={r.id || i}>
-                <TD style={{ color: "var(--muted)" }}>{r.date?.split(" ")[0] || "—"}</TD>
+                <TD style={{ color: "var(--muted)" }}>
+                  {r.date?.split(" ")[0] || "—"}
+                </TD>
                 <TD>
                   <b>{r.category}</b>
                 </TD>
@@ -385,7 +446,11 @@ export function ExpensesPage({ data, search }) {
                     >
                       ✏️
                     </IconBtn>
-                    <IconBtn title="Удалить" color="var(--red)" onClick={() => remove(r)}>
+                    <IconBtn
+                      title="Удалить"
+                      color="var(--red)"
+                      onClick={() => remove(r)}
+                    >
                       🗑
                     </IconBtn>
                   </div>
@@ -402,7 +467,11 @@ export function ExpensesPage({ data, search }) {
         title={editing?.id ? "Изменить расход" : "Новый расход"}
         footer={
           <>
-            <Btn variant="ghost" onClick={() => setEditing(null)} disabled={saving}>
+            <Btn
+              variant="ghost"
+              onClick={() => setEditing(null)}
+              disabled={saving}
+            >
               Отмена
             </Btn>
             <Btn variant="primary" onClick={save} loading={saving}>
@@ -415,7 +484,9 @@ export function ExpensesPage({ data, search }) {
           <>
             <Field
               label="Дата"
-              hint={editing.id ? "Дата создания при правке не меняется" : undefined}
+              hint={
+                editing.id ? "Дата создания при правке не меняется" : undefined
+              }
             >
               <DateField
                 value={editing.date}
@@ -427,9 +498,18 @@ export function ExpensesPage({ data, search }) {
               <TextInput
                 placeholder="Например: Коммуналка"
                 value={editing.category}
-                onChange={(e) => setEditing({ ...editing, category: e.target.value })}
+                onChange={(e) =>
+                  setEditing({ ...editing, category: e.target.value })
+                }
               />
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 6,
+                  flexWrap: "wrap",
+                  marginTop: 8,
+                }}
+              >
                 {QUICK_CATEGORIES.map((c) => (
                   <Btn
                     key={c}
@@ -446,7 +526,9 @@ export function ExpensesPage({ data, search }) {
               <TextInput
                 inputMode="numeric"
                 value={editing.amount}
-                onChange={(e) => setEditing({ ...editing, amount: e.target.value })}
+                onChange={(e) =>
+                  setEditing({ ...editing, amount: e.target.value })
+                }
               />
             </Field>
             <Field
@@ -456,7 +538,9 @@ export function ExpensesPage({ data, search }) {
               <TextInput
                 placeholder="За что / кому"
                 value={editing.comment || ""}
-                onChange={(e) => setEditing({ ...editing, comment: e.target.value })}
+                onChange={(e) =>
+                  setEditing({ ...editing, comment: e.target.value })
+                }
               />
             </Field>
           </>
@@ -495,7 +579,20 @@ export function ClientsPage({ data, search, onSelectClient }) {
         address: editing.address.trim(),
         phone: editing.phone.trim(),
       };
-      if (editing.id) await mutate(() => updateClient({ id: editing.id, ...payload }), AFFECTS.client);
+      if (editing.id)
+        // имя клиента могло поменяться — на бэкенде оно меняется во всех
+        // заказах/платежах/возвратах, поэтому перечитываем и их тоже
+        await mutate(
+          () => updateClient({ id: editing.id, ...payload }),
+          [
+            ...new Set([
+              ...AFFECTS.client,
+              ...AFFECTS.order,
+              "returns",
+              "openingBalances",
+            ]),
+          ],
+        );
       else await mutate(() => saveClient(payload), AFFECTS.client);
       toast("Сохранено", "ok");
       setEditing(null);
@@ -533,7 +630,13 @@ export function ClientsPage({ data, search, onSelectClient }) {
         <Btn
           variant="primary"
           onClick={() =>
-            setEditing({ id: null, market: "", name: "", address: "", phone: "" })
+            setEditing({
+              id: null,
+              market: "",
+              name: "",
+              address: "",
+              phone: "",
+            })
           }
         >
           + Новый клиент
@@ -551,7 +654,14 @@ export function ClientsPage({ data, search, onSelectClient }) {
         <tbody>
           {filtered.length === 0 ? (
             <tr>
-              <td colSpan={5} style={{ textAlign: "center", padding: 40, color: "var(--muted)" }}>
+              <td
+                colSpan={5}
+                style={{
+                  textAlign: "center",
+                  padding: 40,
+                  color: "var(--muted)",
+                }}
+              >
                 Нет данных
               </td>
             </tr>
@@ -572,7 +682,12 @@ export function ClientsPage({ data, search, onSelectClient }) {
                 </TD>
                 <TD style={{ color: "var(--muted)" }}>{r.address || "—"}</TD>
                 <TD>
-                  <span style={{ fontFamily: "JetBrains Mono,monospace", fontSize: 12.5 }}>
+                  <span
+                    style={{
+                      fontFamily: "JetBrains Mono,monospace",
+                      fontSize: 12.5,
+                    }}
+                  >
                     {r.phone || "—"}
                   </span>
                 </TD>
@@ -592,7 +707,11 @@ export function ClientsPage({ data, search, onSelectClient }) {
                     >
                       ✏️
                     </IconBtn>
-                    <IconBtn title="Удалить" color="var(--red)" onClick={() => remove(r)}>
+                    <IconBtn
+                      title="Удалить"
+                      color="var(--red)"
+                      onClick={() => remove(r)}
+                    >
                       🗑
                     </IconBtn>
                   </div>
@@ -609,7 +728,11 @@ export function ClientsPage({ data, search, onSelectClient }) {
         title={editing?.id ? "Изменить клиента" : "Новый клиент"}
         footer={
           <>
-            <Btn variant="ghost" onClick={() => setEditing(null)} disabled={saving}>
+            <Btn
+              variant="ghost"
+              onClick={() => setEditing(null)}
+              disabled={saving}
+            >
               Отмена
             </Btn>
             <Btn variant="primary" onClick={save} loading={saving}>
@@ -623,9 +746,18 @@ export function ClientsPage({ data, search, onSelectClient }) {
             <Field label="Рынок *">
               <TextInput
                 value={editing.market}
-                onChange={(e) => setEditing({ ...editing, market: e.target.value })}
+                onChange={(e) =>
+                  setEditing({ ...editing, market: e.target.value })
+                }
               />
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 6,
+                  flexWrap: "wrap",
+                  marginTop: 8,
+                }}
+              >
                 {unique(arr, "market").map((m) => (
                   <Btn
                     key={m}
@@ -641,20 +773,27 @@ export function ClientsPage({ data, search, onSelectClient }) {
             <Field label="Имя клиента *">
               <TextInput
                 value={editing.name}
-                onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                onChange={(e) =>
+                  setEditing({ ...editing, name: e.target.value })
+                }
               />
             </Field>
             <Field label="Адрес">
               <TextInput
                 value={editing.address}
-                onChange={(e) => setEditing({ ...editing, address: e.target.value })}
+                onChange={(e) =>
+                  setEditing({ ...editing, address: e.target.value })
+                }
               />
             </Field>
             <Field label="Телефон">
               <TextInput
                 value={editing.phone}
                 onChange={(e) =>
-                  setEditing({ ...editing, phone: e.target.value.replace(/[^0-9+ ]/g, "") })
+                  setEditing({
+                    ...editing,
+                    phone: e.target.value.replace(/[^0-9+ ]/g, ""),
+                  })
                 }
               />
             </Field>
@@ -688,8 +827,12 @@ export function NotesPage({ data, search }) {
     try {
       setSaving(true);
       if (editing.id)
-        await mutate(() => updateNote(editing.id, editing.title, editing.text), AFFECTS.note);
-      else await mutate(() => saveNote(editing.title, editing.text), AFFECTS.note);
+        await mutate(
+          () => updateNote(editing.id, editing.title, editing.text),
+          AFFECTS.note,
+        );
+      else
+        await mutate(() => saveNote(editing.title, editing.text), AFFECTS.note);
       toast("Сохранено", "ok");
       setEditing(null);
     } catch (e) {
@@ -731,7 +874,10 @@ export function NotesPage({ data, search }) {
         <div style={{ fontSize: 13, color: "var(--muted)" }}>
           {filtered.length} заметок
         </div>
-        <Btn variant="primary" onClick={() => setEditing({ id: null, title: "", text: "" })}>
+        <Btn
+          variant="primary"
+          onClick={() => setEditing({ id: null, title: "", text: "" })}
+        >
           + Новая заметка
         </Btn>
       </Toolbar>
@@ -744,7 +890,14 @@ export function NotesPage({ data, search }) {
         }}
       >
         {filtered.length === 0 && (
-          <div style={{ ...S.card, padding: 40, textAlign: "center", color: "var(--muted)" }}>
+          <div
+            style={{
+              ...S.card,
+              padding: 40,
+              textAlign: "center",
+              color: "var(--muted)",
+            }}
+          >
             Заметок пока нет
           </div>
         )}
@@ -763,7 +916,11 @@ export function NotesPage({ data, search }) {
           >
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <b style={{ flex: 1, fontSize: 14 }}>{n.title}</b>
-              <IconBtn title="Выполнено" disabled={busyId === n.id} onClick={() => toggle(n)}>
+              <IconBtn
+                title="Выполнено"
+                disabled={busyId === n.id}
+                onClick={() => toggle(n)}
+              >
                 {n.completed ? "✅" : "⚪"}
               </IconBtn>
             </div>
@@ -777,14 +934,22 @@ export function NotesPage({ data, search }) {
             >
               {n.text}
             </div>
-            <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+            <div
+              style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}
+            >
               <IconBtn
                 title="Изменить"
-                onClick={() => setEditing({ id: n.id, title: n.title, text: n.text })}
+                onClick={() =>
+                  setEditing({ id: n.id, title: n.title, text: n.text })
+                }
               >
                 ✏️
               </IconBtn>
-              <IconBtn title="Удалить" color="var(--red)" onClick={() => remove(n)}>
+              <IconBtn
+                title="Удалить"
+                color="var(--red)"
+                onClick={() => remove(n)}
+              >
                 🗑
               </IconBtn>
             </div>
@@ -798,7 +963,11 @@ export function NotesPage({ data, search }) {
         title={editing?.id ? "Изменить заметку" : "Новая заметка"}
         footer={
           <>
-            <Btn variant="ghost" onClick={() => setEditing(null)} disabled={saving}>
+            <Btn
+              variant="ghost"
+              onClick={() => setEditing(null)}
+              disabled={saving}
+            >
               Отмена
             </Btn>
             <Btn variant="primary" onClick={save} loading={saving}>
@@ -812,13 +981,17 @@ export function NotesPage({ data, search }) {
             <Field label="Заголовок">
               <TextInput
                 value={editing.title}
-                onChange={(e) => setEditing({ ...editing, title: e.target.value })}
+                onChange={(e) =>
+                  setEditing({ ...editing, title: e.target.value })
+                }
               />
             </Field>
             <Field label="Текст">
               <TextArea
                 value={editing.text}
-                onChange={(e) => setEditing({ ...editing, text: e.target.value })}
+                onChange={(e) =>
+                  setEditing({ ...editing, text: e.target.value })
+                }
               />
             </Field>
           </>
