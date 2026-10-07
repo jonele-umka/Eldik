@@ -31,6 +31,8 @@ import SupplierDetailPage from "./pages/SupplierDetailPage.jsx";
 import { DataProvider, useData } from "./store/DataContext.jsx";
 import { Spinner as UISpinner } from "./components/UI.jsx";
 import { UIProvider } from "./store/UIContext.jsx";
+import logo from "./assets/img/logoHor.png";
+import logoM from "./assets/img/logoM.png";
 
 const norm = (s) =>
   String(s || "")
@@ -71,7 +73,9 @@ function firstAllowedPage(allowed) {
 function Sidebar({ page, setPage, setSearch, updatedAt, pages }) {
   return (
     <aside style={S.sidebar}>
-      <div style={S.logo}>📦 Бизнес</div>
+      <div style={S.logo}>
+        <img src={logo} alt="logo" style={{ width: "100%" }} />
+      </div>
       <nav style={S.nav}>
         {pages.map((p) => (
           <NavItem
@@ -106,7 +110,9 @@ function Sidebar({ page, setPage, setSearch, updatedAt, pages }) {
 function SidebarCollapsed({ page, setPage, setSearch, pages }) {
   return (
     <aside style={S.sidebarCollapsed}>
-      <div style={S.logoCollapsed}>📦</div>
+      <div style={S.logoCollapsed}>
+        <img src={logoM} alt="logo" style={{ width: "80%" }} />
+      </div>
       <nav style={S.navCollapsed}>
         {pages.map((p) => {
           const active = page === p.key;

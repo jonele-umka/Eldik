@@ -100,10 +100,15 @@ export function BarChart({
   return (
     <div
       ref={ref}
-      style={{ position: "relative" }}
+      style={{ position: "relative", minWidth: 0 }}
       onMouseLeave={() => setHi(null)}
     >
-      <svg width={w} height={height} role="img">
+      <svg
+        width={w}
+        height={height}
+        style={{ display: "block", maxWidth: "100%" }}
+        role="img"
+      >
         {[0, 0.5, 1].map((t) => (
           <g key={t}>
             <line
@@ -193,12 +198,13 @@ export function LineChart({ labels, series, height = 220, unit = "с" }) {
   return (
     <div
       ref={ref}
-      style={{ position: "relative" }}
+      style={{ position: "relative", minWidth: 0 }}
       onMouseLeave={() => setHi(null)}
     >
       <svg
         width={w}
         height={height}
+        style={{ display: "block", maxWidth: "100%" }}
         role="img"
         onMouseMove={onMove}
         onTouchMove={onMove}

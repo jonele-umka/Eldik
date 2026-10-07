@@ -175,7 +175,7 @@ export default function DashboardPage({
     .slice(0, 8)
     .map((r) => ({ label: r.product, value: Number(r.total || 0) }));
 
-  const sectionStyle = { ...S.card, marginBottom: 20 };
+  const sectionStyle = { ...S.card, marginBottom: 20, minWidth: 0 };
   const sectionHeader = {
     padding: "13px 18px",
     borderBottom: "1px solid var(--b1)",
@@ -188,7 +188,8 @@ export default function DashboardPage({
   const linkStyle = {
     fontSize: 12,
     whiteSpace: "nowrap",
-    marginLeft: 12,
+    padding: "8px 0 8px 8px",
+    margin: "-8px 0 -8px 4px",
     color: "var(--accent)",
     cursor: "pointer",
     fontWeight: 500,
@@ -242,12 +243,13 @@ export default function DashboardPage({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+          gridTemplateColumns:
+            "repeat(auto-fit, minmax(min(100%, 340px), 1fr))",
           gap: 20,
           marginBottom: 20,
         }}
       >
-        <div style={{ ...S.card }}>
+        <div style={{ ...S.card, minWidth: 0 }}>
           <div style={sectionHeader}>
             Продажи за 14 дней
             <GoLink to="analytics">Аналитика</GoLink>
@@ -260,7 +262,7 @@ export default function DashboardPage({
             )}
           </div>
         </div>
-        <div style={{ ...S.card }}>
+        <div style={{ ...S.card, minWidth: 0 }}>
           <div style={sectionHeader}>
             <span>Доходы и расходы · {monthName}</span>
             <GoLink to="finance">Финансы</GoLink>
@@ -288,7 +290,7 @@ export default function DashboardPage({
             )}
           </div>
         </div>
-        <div style={{ ...S.card }}>
+        <div style={{ ...S.card, minWidth: 0 }}>
           <div style={sectionHeader}>
             Продажи по рынкам · месяц
             <GoLink to="analytics">Аналитика</GoLink>
@@ -301,7 +303,7 @@ export default function DashboardPage({
             )}
           </div>
         </div>
-        <div style={{ ...S.card }}>
+        <div style={{ ...S.card, minWidth: 0 }}>
           <div style={sectionHeader}>
             Производство сегодня, шт.
             <GoLink to="production">Производство</GoLink>

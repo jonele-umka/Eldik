@@ -298,7 +298,13 @@ export default function AnalyticsPage({ analytics, months, expenses, orders }) {
 
   return (
     <>
-      <div style={S.kpiGrid}>
+      {/* на телефоне — по две карточки в ряд, а не по одной на всю ширину */}
+      <div
+        style={{
+          ...S.kpiGrid,
+          gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))",
+        }}
+      >
         <KPI label="Приход" value={fmtM(totRev)} color="var(--accent)" />
         <KPI label="Выручка" value={fmtM(totInc)} color="var(--green)" />
         <KPI label="Возвраты" value={fmtM(totRet)} color="var(--yellow)" />
@@ -353,7 +359,7 @@ export default function AnalyticsPage({ analytics, months, expenses, orders }) {
           marginBottom: 20,
         }}
       >
-        <div style={{ ...S.card, gridColumn: "1 / -1" }}>
+        <div style={{ ...S.card, minWidth: 0, gridColumn: "1 / -1" }}>
           <div
             style={{
               ...sectionHeader,
@@ -396,7 +402,7 @@ export default function AnalyticsPage({ analytics, months, expenses, orders }) {
           </div>
         </div>
 
-        <div style={S.card}>
+        <div style={{ ...S.card, minWidth: 0 }}>
           <div style={sectionHeader}>
             {MONTHS[cmp.m]} и {MONTHS[cmp.pm].toLowerCase()} · нарастающим
             итогом
@@ -425,14 +431,14 @@ export default function AnalyticsPage({ analytics, months, expenses, orders }) {
           </div>
         </div>
 
-        <div style={S.card}>
+        <div style={{ ...S.card, minWidth: 0 }}>
           <div style={sectionHeader}>Приход по месяцам</div>
           <div style={{ padding: 14 }}>
             {monthBars.length ? <BarChart data={monthBars} /> : <Empty />}
           </div>
         </div>
 
-        <div style={S.card}>
+        <div style={{ ...S.card, minWidth: 0 }}>
           <div style={sectionHeader}>Приход, выручка и расходы по месяцам</div>
           <div style={{ padding: 14 }}>
             {last12.length ? (
@@ -463,13 +469,13 @@ export default function AnalyticsPage({ analytics, months, expenses, orders }) {
           </div>
         </div>
 
-        <div style={S.card}>
+        <div style={{ ...S.card, minWidth: 0 }}>
           <div style={sectionHeader}>Приход по рынкам</div>
           <div style={{ padding: 14 }}>
             {marketBars.length ? <HBarChart data={marketBars} /> : <Empty />}
           </div>
         </div>
-        <div style={S.card}>
+        <div style={{ ...S.card, minWidth: 0 }}>
           <div style={sectionHeader}>Топ товары</div>
           <div style={{ padding: 14 }}>
             {productBars.length ? (
@@ -479,7 +485,7 @@ export default function AnalyticsPage({ analytics, months, expenses, orders }) {
             )}
           </div>
         </div>
-        <div style={S.card}>
+        <div style={{ ...S.card, minWidth: 0 }}>
           <div style={sectionHeader}>Топ клиенты</div>
           <div style={{ padding: 14 }}>
             {clientBars.length ? (
