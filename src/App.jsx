@@ -31,7 +31,7 @@ import SupplierDetailPage from "./pages/SupplierDetailPage.jsx";
 import { DataProvider, useData } from "./store/DataContext.jsx";
 import { Spinner as UISpinner } from "./components/UI.jsx";
 import { UIProvider } from "./store/UIContext.jsx";
-import logo from "./assets/img/logoHor.png";
+
 const norm = (s) =>
   String(s || "")
     .trim()
@@ -71,9 +71,7 @@ function firstAllowedPage(allowed) {
 function Sidebar({ page, setPage, setSearch, updatedAt, pages }) {
   return (
     <aside style={S.sidebar}>
-      <div style={S.logo}>
-        <img style={{width: '100%', maxWidth: 150}} src={logo} alt="logo" />
-      </div>
+      <div style={S.logo}>📦 Бизнес</div>
       <nav style={S.nav}>
         {pages.map((p) => (
           <NavItem
@@ -576,6 +574,7 @@ function Shell() {
             analytics={data.analytics}
             months={data.months}
             expenses={data.expenses}
+            orders={data.orders}
           />
         );
       case "production":

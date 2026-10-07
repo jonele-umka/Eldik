@@ -3,7 +3,7 @@
 // финансы). Ничего не запрашивает отдельно.
 import { useMemo } from "react";
 import { fmtM, fmt, getMonth } from "../utils/index.js";
-import { KPI, TableWrap, TR, TD, TH, ProductThumb } from "../components/UI.jsx";
+import { KPI } from "../components/UI.jsx";
 import { todayString } from "../components/Form.jsx";
 import { S } from "../utils/styles.js";
 import {
@@ -18,7 +18,6 @@ export default function DashboardPage({
   debtors,
   finance,
   production,
-  prices,
   isMobile,
   onGo,
 }) {
@@ -27,16 +26,7 @@ export default function DashboardPage({
 
   const ordersArr = Array.isArray(orders) ? orders : [];
   const debtorsArr = Array.isArray(debtors) ? debtors : [];
-  const pricesArr = Array.isArray(prices) ? prices : [];
   const prodData = production || {};
-
-  const imageByProduct = useMemo(() => {
-    const m = {};
-    pricesArr.forEach((p) => {
-      if (p.product) m[p.product] = p.image || "";
-    });
-    return m;
-  }, [prices]);
 
   const salesToday = useMemo(
     () =>
@@ -197,10 +187,19 @@ export default function DashboardPage({
   };
   const linkStyle = {
     fontSize: 12,
+    whiteSpace: "nowrap",
+    marginLeft: 12,
     color: "var(--accent)",
     cursor: "pointer",
     fontWeight: 500,
   };
+
+  const GoLink = ({ to, children }) =>
+    onGo ? (
+      <span style={linkStyle} onClick={() => onGo(to)}>
+        {children} →
+      </span>
+    ) : null;
 
   return (
     <>
@@ -249,7 +248,10 @@ export default function DashboardPage({
         }}
       >
         <div style={{ ...S.card }}>
-          <div style={sectionHeader}>Продажи за 14 дней</div>
+          <div style={sectionHeader}>
+            Продажи за 14 дней
+            <GoLink to="analytics">Аналитика</GoLink>
+          </div>
           <div style={{ padding: 14 }}>
             {salesByDay.some((d) => d.value) ? (
               <BarChart data={salesByDay} />
@@ -259,7 +261,10 @@ export default function DashboardPage({
           </div>
         </div>
         <div style={{ ...S.card }}>
-          <div style={sectionHeader}>Доходы и расходы · {monthName}</div>
+          <div style={sectionHeader}>
+            <span>Доходы и расходы · {monthName}</span>
+            <GoLink to="finance">Финансы</GoLink>
+          </div>
           <div style={{ padding: 14 }}>
             {finDays.labels.length ? (
               <LineChart
@@ -284,7 +289,10 @@ export default function DashboardPage({
           </div>
         </div>
         <div style={{ ...S.card }}>
-          <div style={sectionHeader}>Продажи по рынкам · месяц</div>
+          <div style={sectionHeader}>
+            Продажи по рынкам · месяц
+            <GoLink to="analytics">Аналитика</GoLink>
+          </div>
           <div style={{ padding: 14 }}>
             {salesByMarket.length ? (
               <HBarChart data={salesByMarket} />
@@ -294,7 +302,10 @@ export default function DashboardPage({
           </div>
         </div>
         <div style={{ ...S.card }}>
-          <div style={sectionHeader}>Производство сегодня, шт.</div>
+          <div style={sectionHeader}>
+            Производство сегодня, шт.
+            <GoLink to="production">Производство</GoLink>
+          </div>
           <div style={{ padding: 14 }}>
             {prodBars.length ? (
               <HBarChart data={prodBars} color="var(--purple)" unit="шт" />
@@ -308,136 +319,13 @@ export default function DashboardPage({
       <div style={sectionStyle}>
         <div style={sectionHeader}>
           Крупнейшие должники
-          {onGo && (
-            <span style={linkStyle} onClick={() => onGo("debtors")}>
-              Все должники →
-            </span>
-          )}
+          <GoLink to="debtors">Все должники</GoLink>
         </div>
         {debtorBars.length > 0 && (
           <div style={{ padding: "12px 18px 4px" }}>
             <HBarChart data={debtorBars} color="var(--red)" />
           </div>
         )}
-        <div style={{ overflowX: "auto" }}>
-          <table
-            style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}
-          >
-            <thead>
-              <tr style={{ background: "var(--s2)" }}>
-                {["Клиент", "Долг"].map((h) => (
-                  <TH key={h}>{h}</TH>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {topDebtors.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={2}
-                    style={{
-                      textAlign: "center",
-                      padding: 30,
-                      color: "var(--muted)",
-                    }}
-                  >
-                    Должников нет 🎉
-                  </td>
-                </tr>
-              ) : (
-                topDebtors.map((r, i) => (
-                  <TR key={i}>
-                    <TD>
-                      <b>{r.client}</b>
-                    </TD>
-                    <TD
-                      style={{
-                        color: "var(--red)",
-                        fontFamily: "JetBrains Mono,monospace",
-                      }}
-                    >
-                      {fmtM(r.debt)}
-                    </TD>
-                  </TR>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div style={sectionStyle}>
-        <div style={sectionHeader}>
-          Производство на сегодня ({today})
-          {onGo && (
-            <span style={linkStyle} onClick={() => onGo("production")}>
-              Всё производство →
-            </span>
-          )}
-        </div>
-        <div style={{ overflowX: "auto" }}>
-          <table
-            style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}
-          >
-            <thead>
-              <tr style={{ background: "var(--s2)" }}>
-                {["Товар", "Всего произвести", "По рынкам"].map((h) => (
-                  <TH key={h}>{h}</TH>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {todayProduction.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={3}
-                    style={{
-                      textAlign: "center",
-                      padding: 30,
-                      color: "var(--muted)",
-                    }}
-                  >
-                    На сегодня заказов с доставкой нет
-                  </td>
-                </tr>
-              ) : (
-                todayProduction.map((r) => (
-                  <TR key={r.product}>
-                    <TD>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                        }}
-                      >
-                        <ProductThumb
-                          src={imageByProduct[r.product]}
-                          size={28}
-                        />
-                        <b>{r.product}</b>
-                      </div>
-                    </TD>
-                    <TD
-                      style={{
-                        fontFamily: "JetBrains Mono,monospace",
-                        fontWeight: 700,
-                        color: "var(--accent)",
-                      }}
-                    >
-                      {fmt(r.total)}
-                    </TD>
-                    <TD style={{ color: "var(--muted)" }}>
-                      {Object.entries(r.markets)
-                        .map(([m, q]) => `${m}: ${q}`)
-                        .join(", ") || "—"}
-                    </TD>
-                  </TR>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
       </div>
     </>
   );

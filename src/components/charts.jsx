@@ -175,7 +175,9 @@ export function LineChart({ labels, series, height = 220, unit = "с" }) {
   const iw = w - m.l - m.r;
   const ih = height - m.t - m.b;
   const n = labels.length;
-  const max = niceMax(Math.max(...series.flatMap((s) => s.values), 0));
+  const max = niceMax(
+    Math.max(...series.flatMap((s) => s.values).filter((v) => v != null), 0),
+  );
   const x = (i) => m.l + (n <= 1 ? iw / 2 : (iw * i) / (n - 1));
   const y = (v) => m.t + ih - (v / max) * ih;
   const every = Math.ceil(n / Math.max(2, Math.floor(iw / 44)));
@@ -249,9 +251,12 @@ export function LineChart({ labels, series, height = 220, unit = "с" }) {
               strokeLinejoin="round"
               strokeLinecap="round"
               strokeDasharray={s.dash || "0"}
-              points={s.values.map((v, i) => `${x(i)},${y(v)}`).join(" ")}
+              points={s.values
+                .map((v, i) => (v == null ? null : `${x(i)},${y(v)}`))
+                .filter(Boolean)
+                .join(" ")}
             />
-            {hi !== null && (
+            {hi !== null && s.values[hi] != null && (
               <circle
                 cx={x(hi)}
                 cy={y(s.values[hi])}
@@ -280,7 +285,7 @@ export function LineChart({ labels, series, height = 220, unit = "с" }) {
               />
               {s.name}:{" "}
               <b style={{ fontFamily: MONO }}>
-                {fmt(s.values[hi])} {unit}
+                {s.values[hi] == null ? "—" : `${fmt(s.values[hi])} ${unit}`}
               </b>
             </div>
           ))}

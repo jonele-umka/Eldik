@@ -53,35 +53,67 @@ export const ENDPOINTS = {
 
 const ALL_KEYS = Object.keys(ENDPOINTS);
 
-// Apps Script ограничивает число ОДНОВРЕМЕННЫХ запросов к одному и тому
-// же скрипту. Раньше refresh() при каждом открытии/обновлении отправлял
-// сразу ~25 параллельных запросов (по одному на каждую таблицу) — часть
-// из них Google обрывал на середине (в консоли это видно как
-// ERR_CONNECTION_CLOSED), и та таблица просто не обновлялась в этот раз
-// (старые данные оставались как есть — не критично, но раздражает).
-// Теперь запросы идут небольшими пачками, и один сбойный запрос
-// повторяется ещё раз — почти всегда обрыв разовый, а не настоящая
-// ошибка на сервере.
-const FETCH_CONCURRENCY = 5;
+// Apps Script ограничивает число ОДНОВРЕМЕННЫХ запросов к одному скрипту, а
+// тяжёлые отчёты (должники, аналитика, финансы) считаются долго. Если
+// отправить их разом — лишние Google отбивает страницей-ошибкой без
+// CORS-заголовка (в консоли это "blocked by CORS ... ERR_FAILED 200").
+// Раньше лимит был "на один refresh", но при открытии сайта запускалось
+// несколько refresh одновременно (старт + событие фокуса вкладки + двойной
+// запуск эффектов в dev-режиме), и в сумме всё равно уходило 10+ запросов.
+// Теперь:
+//  1) лимит ОБЩИЙ на всё приложение (очередь);
+//  2) одинаковый запрос, который уже идёт, не дублируется — второй вызов
+//     просто ждёт результат первого;
+//  3) один сбойный запрос повторяется через короткую паузу.
+const MAX_PARALLEL = 4;
+let active = 0;
+const waiting = [];
+const inflight = new Map();
 
-async function fetchKey(key) {
+function acquire() {
+  if (active < MAX_PARALLEL) {
+    active++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => waiting.push(resolve));
+}
+function release() {
+  const next = waiting.shift();
+  if (next)
+    next(); // слот передаётся следующему, active не меняется
+  else active--;
+}
+
+async function requestKey(key) {
+  await acquire();
   try {
-    return { key, d: await apiGet(ENDPOINTS[key]) };
-  } catch (err) {
-    // Один повтор — специально БЕЗ задержки: обрыв соединения из-за
-    // перегрузки обычно освобождается уже к следующей попытке.
-    return { key, d: await apiGet(ENDPOINTS[key]) };
+    try {
+      return await apiGet(ENDPOINTS[key]);
+    } catch {
+      await new Promise((r) => setTimeout(r, 700));
+      return await apiGet(ENDPOINTS[key]);
+    }
+  } finally {
+    release();
   }
 }
 
-async function fetchKeysInBatches(list) {
-  const results = [];
-  for (let i = 0; i < list.length; i += FETCH_CONCURRENCY) {
-    const batch = list.slice(i, i + FETCH_CONCURRENCY);
-    const settled = await Promise.allSettled(batch.map(fetchKey));
-    results.push(...settled);
+// fresh=true — после записи: нужен именно новый ответ, а не тот, что был
+// запрошен до сохранения.
+function fetchKey(key, fresh = false) {
+  if (!fresh && inflight.has(key))
+    return inflight.get(key).then((d) => ({ key, d }));
+  const p = requestKey(key);
+  if (!fresh) {
+    inflight.set(key, p);
+    const clear = () => inflight.get(key) === p && inflight.delete(key);
+    p.then(clear, clear);
   }
-  return results;
+  return p.then((d) => ({ key, d }));
+}
+
+function fetchKeys(list, fresh) {
+  return Promise.allSettled(list.map((k) => fetchKey(k, fresh)));
 }
 
 const DataContext = createContext(null);
@@ -122,7 +154,7 @@ export function DataProvider({ apiUrl, children }) {
   // не крутим общий индикатор загрузки, чтобы не мигало само по себе
   // каждые 30 секунд, пока человек просто держит вкладку открытой.
   const refresh = useCallback(
-    async (keys = ALL_KEYS, { silent = false } = {}) => {
+    async (keys = ALL_KEYS, { silent = false, fresh = false } = {}) => {
       if (!apiUrl) return;
       const list = keys.filter((k) => ENDPOINTS[k]);
       if (!list.length) return;
@@ -132,7 +164,7 @@ export function DataProvider({ apiUrl, children }) {
         setLoading(true);
       }
 
-      const results = await fetchKeysInBatches(list);
+      const results = await fetchKeys(list, fresh);
 
       const patch = {};
       results.forEach((r) => {
@@ -185,8 +217,14 @@ export function DataProvider({ apiUrl, children }) {
   // а не ждём, пока сам нажмёт "Обновить".
   useEffect(() => {
     if (!apiUrl) return;
+    // Не чаще раза в 30 секунд: на старте событие фокуса приходит сразу
+    // после загрузки и запускало второе полное обновление поверх первого.
+    let last = Date.now();
     const onVisible = () => {
-      if (document.visibilityState === "visible") refresh(ALL_KEYS);
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - last < 30000) return;
+      last = Date.now();
+      refresh(ALL_KEYS);
     };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
@@ -246,7 +284,7 @@ export function DataProvider({ apiUrl, children }) {
         if (keys.length) {
           // silent, чтобы не включать общий индикатор загрузки — экран уже
           // показывает нужный результат оптимистично (если он был).
-          await refresh(keys, { silent: !!optimisticPatch });
+          await refresh(keys, { silent: !!optimisticPatch, fresh: true });
         }
         return res;
       } catch (err) {
@@ -264,7 +302,7 @@ export function DataProvider({ apiUrl, children }) {
         // после ручного обновления страницы (когда оно "само" поправится).
         if (keys.length) {
           try {
-            await refresh(keys);
+            await refresh(keys, { fresh: true });
           } catch {
             /* обновить не удалось — не критично, ошибку показываем ниже */
           }
