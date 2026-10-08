@@ -5,7 +5,14 @@
 import { useMemo, useState } from "react";
 import { fmtM, filterSearch } from "../utils/index.js";
 import { KPI, TableWrap, TR, TD, TH, ProductThumb } from "../components/UI.jsx";
-import { Btn, IconBtn, Modal, Field, TextInput, Toolbar } from "../components/Form.jsx";
+import {
+  Btn,
+  IconBtn,
+  Modal,
+  Field,
+  TextInput,
+  Toolbar,
+} from "../components/Form.jsx";
 import { S } from "../utils/styles.js";
 import { useData, AFFECTS } from "../store/DataContext.jsx";
 import { useUI } from "../store/UIContext.jsx";
@@ -34,6 +41,7 @@ export default function CatalogPage({ data, search, isMobile }) {
       ownBoxPrice: "",
       ownBoxPriceWhite: "",
       ownBoxPriceDark: "",
+      priceDark: "",
     });
 
   const openEdit = (row) =>
@@ -44,8 +52,11 @@ export default function CatalogPage({ data, search, isMobile }) {
       weight: String(row.weight ?? ""),
       image: row.image || "",
       ownBoxPrice: row.ownBoxPrice ? String(row.ownBoxPrice) : "",
-      ownBoxPriceWhite: row.ownBoxPriceWhite ? String(row.ownBoxPriceWhite) : "",
+      ownBoxPriceWhite: row.ownBoxPriceWhite
+        ? String(row.ownBoxPriceWhite)
+        : "",
       ownBoxPriceDark: row.ownBoxPriceDark ? String(row.ownBoxPriceDark) : "",
+      priceDark: row.priceDark ? String(row.priceDark) : "",
     });
 
   const save = async () => {
@@ -60,6 +71,7 @@ export default function CatalogPage({ data, search, isMobile }) {
         ownBoxPrice: Number(editing.ownBoxPrice || 0),
         ownBoxPriceWhite: Number(editing.ownBoxPriceWhite || 0),
         ownBoxPriceDark: Number(editing.ownBoxPriceDark || 0),
+        priceDark: Number(editing.priceDark || 0),
       };
       if (editing.oldProduct) {
         await mutate(
@@ -96,7 +108,11 @@ export default function CatalogPage({ data, search, isMobile }) {
   return (
     <>
       <div style={isMobile ? S.kpiGridMobile : S.kpiGrid}>
-        <KPI label="Товаров в каталоге" value={filtered.length} color="var(--accent)" />
+        <KPI
+          label="Товаров в каталоге"
+          value={filtered.length}
+          color="var(--accent)"
+        />
       </div>
 
       <Toolbar style={{ justifyContent: "flex-end" }}>
@@ -116,7 +132,14 @@ export default function CatalogPage({ data, search, isMobile }) {
         <tbody>
           {filtered.length === 0 ? (
             <tr>
-              <td colSpan={6} style={{ textAlign: "center", padding: 40, color: "var(--muted)" }}>
+              <td
+                colSpan={6}
+                style={{
+                  textAlign: "center",
+                  padding: 40,
+                  color: "var(--muted)",
+                }}
+              >
                 Каталог пуст
               </td>
             </tr>
@@ -130,13 +153,27 @@ export default function CatalogPage({ data, search, isMobile }) {
                   <b>{r.product}</b>
                 </TD>
                 <TD>
-                  <span style={{ fontFamily: "JetBrains Mono,monospace" }}>{fmtM(r.price)}</span>
+                  <span style={{ fontFamily: "JetBrains Mono,monospace" }}>
+                    {fmtM(r.price)}
+                  </span>
+                  {r.priceDark ? (
+                    <span
+                      style={{ color: "var(--muted)", fontSize: 11.5 }}
+                      title="Тёмные, новая коробка"
+                    >
+                      {" "}
+                      · 🍫 {fmtM(r.priceDark)}
+                    </span>
+                  ) : null}
                 </TD>
-                <TD style={{ color: "var(--muted)" }}>{r.weight ? `${r.weight} кг` : "—"}</TD>
+                <TD style={{ color: "var(--muted)" }}>
+                  {r.weight ? `${r.weight} кг` : "—"}
+                </TD>
                 <TD style={{ color: "var(--muted)" }}>
                   {r.ownBoxPriceWhite || r.ownBoxPriceDark ? (
                     <span title="Цена своей тарой отдельно для белого/тёмного">
-                      📦 бел. {fmtM(r.ownBoxPriceWhite)} / тём. {fmtM(r.ownBoxPriceDark)}
+                      📦 бел. {fmtM(r.ownBoxPriceWhite)} / тём.{" "}
+                      {fmtM(r.ownBoxPriceDark)}
                     </span>
                   ) : r.ownBoxPrice ? (
                     <span title="Цена, если клиент забирает в своей таре (старая коробка)">
@@ -151,7 +188,11 @@ export default function CatalogPage({ data, search, isMobile }) {
                     <IconBtn title="Изменить" onClick={() => openEdit(r)}>
                       ✏️
                     </IconBtn>
-                    <IconBtn title="Удалить" color="var(--red)" onClick={() => remove(r)}>
+                    <IconBtn
+                      title="Удалить"
+                      color="var(--red)"
+                      onClick={() => remove(r)}
+                    >
                       🗑
                     </IconBtn>
                   </div>
@@ -168,7 +209,11 @@ export default function CatalogPage({ data, search, isMobile }) {
         title={editing?.oldProduct ? "Изменить товар" : "Новый товар"}
         footer={
           <>
-            <Btn variant="ghost" onClick={() => setEditing(null)} disabled={saving}>
+            <Btn
+              variant="ghost"
+              onClick={() => setEditing(null)}
+              disabled={saving}
+            >
               Отмена
             </Btn>
             <Btn variant="primary" onClick={save} loading={saving}>
@@ -182,27 +227,51 @@ export default function CatalogPage({ data, search, isMobile }) {
             <Field label="Название">
               <TextInput
                 value={editing.product}
-                onChange={(e) => setEditing({ ...editing, product: e.target.value })}
+                onChange={(e) =>
+                  setEditing({ ...editing, product: e.target.value })
+                }
               />
             </Field>
             <Field label="Цена, сом">
               <TextInput
                 inputMode="decimal"
                 value={editing.price}
-                onChange={(e) => setEditing({ ...editing, price: e.target.value })}
+                onChange={(e) =>
+                  setEditing({ ...editing, price: e.target.value })
+                }
               />
             </Field>
             <Field label="Вес, кг">
               <TextInput
                 inputMode="decimal"
                 value={editing.weight}
-                onChange={(e) => setEditing({ ...editing, weight: e.target.value })}
+                onChange={(e) =>
+                  setEditing({ ...editing, weight: e.target.value })
+                }
               />
             </Field>
-            <Field label="Ссылка на картинку" hint="Ссылка из Google Диска (файл должен быть доступен по ссылке)">
+            <Field
+              label="Ссылка на картинку"
+              hint="Ссылка из Google Диска (файл должен быть доступен по ссылке)"
+            >
               <TextInput
                 value={editing.image}
-                onChange={(e) => setEditing({ ...editing, image: e.target.value })}
+                onChange={(e) =>
+                  setEditing({ ...editing, image: e.target.value })
+                }
+              />
+            </Field>
+            <Field
+              label="Тёмные (новая коробка), сом"
+              hint="Цена тёмного печенья в новой коробке (например 97 при обычной 90). Если заполнено — при заказе появляется кнопка «Тёмные». Пусто — кнопки нет."
+            >
+              <TextInput
+                inputMode="decimal"
+                placeholder="не применимо"
+                value={editing.priceDark}
+                onChange={(e) =>
+                  setEditing({ ...editing, priceDark: e.target.value })
+                }
               />
             </Field>
             <Field
@@ -213,7 +282,9 @@ export default function CatalogPage({ data, search, isMobile }) {
                 inputMode="decimal"
                 placeholder="не применимо"
                 value={editing.ownBoxPrice}
-                onChange={(e) => setEditing({ ...editing, ownBoxPrice: e.target.value })}
+                onChange={(e) =>
+                  setEditing({ ...editing, ownBoxPrice: e.target.value })
+                }
               />
             </Field>
             <Field
@@ -224,15 +295,22 @@ export default function CatalogPage({ data, search, isMobile }) {
                 inputMode="decimal"
                 placeholder="не применимо"
                 value={editing.ownBoxPriceWhite}
-                onChange={(e) => setEditing({ ...editing, ownBoxPriceWhite: e.target.value })}
+                onChange={(e) =>
+                  setEditing({ ...editing, ownBoxPriceWhite: e.target.value })
+                }
               />
             </Field>
-            <Field label="Своя тара — тёмное, сом" hint="Цена своей тарой для тёмного (с какао) варианта.">
+            <Field
+              label="Своя тара — тёмное, сом"
+              hint="Цена своей тарой для тёмного (с какао) варианта."
+            >
               <TextInput
                 inputMode="decimal"
                 placeholder="не применимо"
                 value={editing.ownBoxPriceDark}
-                onChange={(e) => setEditing({ ...editing, ownBoxPriceDark: e.target.value })}
+                onChange={(e) =>
+                  setEditing({ ...editing, ownBoxPriceDark: e.target.value })
+                }
               />
             </Field>
             {editing.image && (

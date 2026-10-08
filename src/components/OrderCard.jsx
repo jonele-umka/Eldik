@@ -480,6 +480,17 @@ export function OrderCard({
                       >
                         {r.product}
                       </span>
+                      {!r.oldBox && r.oldBoxColor === "dark" && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: "#d29922",
+                            fontWeight: 600,
+                          }}
+                        >
+                          🍫 тёмные
+                        </span>
+                      )}
                       {r.oldBox && (
                         <span
                           title="Своя тара"
@@ -491,7 +502,7 @@ export function OrderCard({
                         >
                           📦
                           {r.oldBoxColor === "white"
-                            ? " белый"
+                            ? " обычный"
                             : r.oldBoxColor === "dark"
                               ? " тёмный"
                               : ""}

@@ -210,21 +210,21 @@ export default function OrderDetailModal({ group, onClose }) {
   // коробки — обычно чуть дешевле; применимо только если в каталоге для
   // товара задана ownBoxPrice).
   const priceForRow = (row) => {
-    const catalogRow = priceRowOf(row.product);
-    if (
-      row.oldBox &&
-      canColorSplit(catalogRow) &&
-      row.oldBoxColor === "white"
-    ) {
-      return Number(catalogRow.ownBoxPriceWhite);
+    const c = priceRowOf(row.product);
+    const base = priceOf(c, market);
+    const pd = Number(c?.priceDark || 0);
+    const delta = pd > 0 ? pd - Number(c?.price || 0) : 0;
+    const dark = row.oldBoxColor === "dark";
+    if (row.oldBox) {
+      const own = Number(c?.ownBoxPrice || 0);
+      const w = Number(c?.ownBoxPriceWhite || 0);
+      const d = Number(c?.ownBoxPriceDark || 0);
+      if (row.oldBoxColor === "white" && w > 0) return w;
+      if (dark && d > 0) return d;
+      if (own > 0) return dark ? own + delta : own;
+      return base;
     }
-    if (row.oldBox && canColorSplit(catalogRow) && row.oldBoxColor === "dark") {
-      return Number(catalogRow.ownBoxPriceDark);
-    }
-    if (row.oldBox && Number(catalogRow?.ownBoxPrice || 0) > 0) {
-      return Number(catalogRow.ownBoxPrice);
-    }
-    return priceOf(catalogRow, market);
+    return dark && pd > 0 ? pd : base;
   };
 
   // Товары, у которых старая коробка делится по цвету (белый/тёмный).
@@ -971,6 +971,11 @@ export default function OrderDetailModal({ group, onClose }) {
                         (r.oldBoxColor === "white" ? " · белый" : " · тёмный")}
                     </span>
                   )}
+                  {!(r.oldBox && canSplit) && r.oldBoxColor === "dark" && (
+                    <span style={{ color: "#d29922", marginLeft: 6 }}>
+                      🍫 тёмные
+                    </span>
+                  )}
                 </div>
                 {isOut && (
                   <div
@@ -1052,7 +1057,9 @@ export default function OrderDetailModal({ group, onClose }) {
                       oldBoxColor:
                         !r.oldBox && canSplit
                           ? r.oldBoxColor || "white"
-                          : r.oldBoxColor,
+                          : r.oldBox && r.oldBoxColor === "white"
+                            ? ""
+                            : r.oldBoxColor,
                     })
                   }
                   title={
@@ -1078,10 +1085,39 @@ export default function OrderDetailModal({ group, onClose }) {
                 </button>
               )}
 
+              {Number(catalogRow?.priceDark || 0) > 0 &&
+                !(r.oldBox && canSplit) && (
+                  <button
+                    onClick={() =>
+                      setRow(i, {
+                        oldBoxColor: r.oldBoxColor === "dark" ? "" : "dark",
+                      })
+                    }
+                    title={`Тёмное печенье: ${catalogRow.priceDark} сом вместо ${catalogRow.price} сом`}
+                    style={{
+                      background:
+                        r.oldBoxColor === "dark"
+                          ? "rgba(210,153,34,0.15)"
+                          : "var(--s1)",
+                      border: `1px solid ${r.oldBoxColor === "dark" ? "#d29922" : "var(--b1)"}`,
+                      borderRadius: 7,
+                      padding: "5px 8px",
+                      color:
+                        r.oldBoxColor === "dark" ? "#d29922" : "var(--muted)",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    🍫 Тёмные
+                  </button>
+                )}
+
               {canSplit && r.oldBox && (
                 <div style={{ display: "flex", gap: 4 }}>
                   {[
-                    ["white", "белый"],
+                    ["white", "обычный"],
                     ["dark", "тёмный"],
                   ].map(([val, label]) => (
                     <button

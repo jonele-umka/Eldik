@@ -165,14 +165,9 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
       [product]: { ...(prev[product] || { qty: 0, oldBox: false }), comment },
     }));
 
-  const toggleOldBox = (product) =>
-    setItems((prev) => ({
-      ...prev,
-      [product]: {
-        ...(prev[product] || { qty: 0, comment: "" }),
-        oldBox: !prev[product]?.oldBox,
-      },
-    }));
+  // Тёмное печенье в новой коробке: в каталоге задана priceDark
+  // (напр. 97 вместо 90).
+  const canDark = (row) => !!row && Number(row.priceDark || 0) > 0;
 
   // Товары, у которых старая коробка делится по цвету (белый/тёмный) —
   // для них при выборе "старая коробка" вводится кол-во отдельно для
@@ -182,13 +177,57 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
     Number(row.ownBoxPriceWhite || 0) > 0 &&
     Number(row.ownBoxPriceDark || 0) > 0;
 
-  // Цена товара с учётом "своей тары" (клиент забирает без нашей
-  // коробки — обычно чуть дешевле). Применимо только к товарам, у
-  // которых в каталоге задана ownBoxPrice.
-  const priceForItem = (row, it) =>
-    it?.oldBox && Number(row?.ownBoxPrice || 0) > 0
-      ? Number(row.ownBoxPrice)
-      : priceOf(row, market);
+  // Режим "по цветам": включена "Тёмные" либо старая коробка с делением.
+  const isSplit = (row, it) =>
+    !!it && (!!it.dark || (!!it.oldBox && canColorSplit(row)));
+
+  // Меняем флаг (oldBox/dark) и переносим количество между режимами:
+  // в раздельный режим — всё количество уходит в "обычные", обратно —
+  // сумма обоих цветов возвращается в общее количество.
+  const toggleFlag = (product, flag) =>
+    setItems((prev) => {
+      const row = prices.find((p) => p.product === product);
+      const cur = prev[product] || { qty: 0, comment: "" };
+      const next = { ...cur, [flag]: !cur[flag] };
+      const was = isSplit(row, cur);
+      const now = isSplit(row, next);
+      const sum = Number(cur.qtyWhite || 0) + Number(cur.qtyDark || 0);
+      if (!was && now && sum === 0) next.qtyWhite = Number(cur.qty || 0);
+      if (was && !now) {
+        next.qty = sum || Number(cur.qty || 0);
+        next.qtyWhite = 0;
+        next.qtyDark = 0;
+      }
+      return { ...prev, [product]: next };
+    });
+  const toggleOldBox = (product) => toggleFlag(product, "oldBox");
+  const toggleDark = (product) => toggleFlag(product, "dark");
+
+  // Цены по цветам. Новая коробка: обычное = price, тёмное = priceDark.
+  // Старая: белое/тёмное из каталога; если не заданы — своя тара
+  // (+ разница тёмного).
+  const colorPrices = (row, oldBox) => {
+    const base = priceOf(row, market);
+    const delta = canDark(row)
+      ? Number(row.priceDark) - Number(row.price || 0)
+      : 0;
+    if (!oldBox)
+      return { white: base, dark: canDark(row) ? Number(row.priceDark) : base };
+    const own = Number(row?.ownBoxPrice || 0);
+    const w = Number(row?.ownBoxPriceWhite || 0);
+    const d = Number(row?.ownBoxPriceDark || 0);
+    return {
+      white: w > 0 ? w : own || base,
+      dark: d > 0 ? d : (own || base) + delta,
+    };
+  };
+
+  // Цена обычной (не раздельной) строки.
+  const priceForItem = (row, it) => {
+    if (it?.oldBox && Number(row?.ownBoxPrice || 0) > 0)
+      return Number(row.ownBoxPrice);
+    return priceOf(row, market);
+  };
 
   // Цена за коробку + в скобках цена за кг (для весовых, продающихся
   // коробками — напр. 3 кг), чтобы было видно обе величины сразу.
@@ -203,12 +242,12 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
     let sum = 0;
     Object.entries(items).forEach(([product, it]) => {
       const row = prices.find((p) => p.product === product);
-      if (it?.oldBox && canColorSplit(row)) {
+      if (isSplit(row, it)) {
         const qw = Number(it.qtyWhite || 0);
         const qd = Number(it.qtyDark || 0);
+        const cp = colorPrices(row, !!it.oldBox);
         boxes += qw + qd;
-        sum +=
-          qw * Number(row.ownBoxPriceWhite) + qd * Number(row.ownBoxPriceDark);
+        sum += qw * cp.white + qd * cp.dark;
         return;
       }
       const qty = Number(it?.qty || 0);
@@ -226,33 +265,25 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
     const orderItems = [];
     Object.entries(items).forEach(([product, it]) => {
       const row = prices.find((p) => p.product === product);
-      if (it?.oldBox && canColorSplit(row)) {
-        const qw = Number(it.qtyWhite || 0);
-        const qd = Number(it.qtyDark || 0);
-        if (qw > 0) {
+      if (isSplit(row, it)) {
+        const oldBox = !!it.oldBox;
+        [
+          ["white", Number(it.qtyWhite || 0)],
+          ["dark", Number(it.qtyDark || 0)],
+        ].forEach(([color, q]) => {
+          if (q <= 0) return;
           orderItems.push({
             product,
-            quantity: qw,
-            paidQuantity: qw,
+            quantity: q,
+            paidQuantity: q,
             giftQty: 0,
-            finalQuantity: qw,
+            finalQuantity: q,
             comment: it.comment || "",
-            oldBox: true,
-            oldBoxColor: "white",
+            oldBox,
+            // новая коробка: помечаем только тёмное
+            oldBoxColor: oldBox || color === "dark" ? color : "",
           });
-        }
-        if (qd > 0) {
-          orderItems.push({
-            product,
-            quantity: qd,
-            paidQuantity: qd,
-            giftQty: 0,
-            finalQuantity: qd,
-            comment: it.comment || "",
-            oldBox: true,
-            oldBoxColor: "dark",
-          });
-        }
+        });
         return;
       }
       const qty = Number(it?.qty || 0);
@@ -494,12 +525,75 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
           const it = items[p.product] || { qty: 0, comment: "", oldBox: false };
           const canOldBox = Number(p.ownBoxPrice || 0) > 0;
           const canSplit = canColorSplit(p);
-          const splitActive = it.oldBox && canSplit;
+          const hasDark = canDark(p);
+          const splitActive = isSplit(p, it);
           const qtyWhite = Number(it.qtyWhite || 0);
           const qtyDark = Number(it.qtyDark || 0);
           const rawQty = Number(it.qty || 0);
           const qty = splitActive ? qtyWhite + qtyDark : rawQty;
           const price = priceForItem(p, it);
+          const cp = colorPrices(p, !!it.oldBox);
+          const showOptions =
+            (canOldBox || canSplit || hasDark) &&
+            (rawQty > 0 || it.oldBox || it.dark || qty > 0);
+          const optBtn = (on) => ({
+            background: on ? "rgba(210,153,34,0.15)" : "var(--s1)",
+            border: `1px solid ${on ? "#d29922" : "var(--b1)"}`,
+            borderRadius: 7,
+            padding: "5px 8px",
+            color: on ? "#d29922" : "var(--muted)",
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+          });
+          const stepper = (color, val, label) => (
+            <div
+              key={color}
+              style={{ display: "flex", alignItems: "center", gap: 5 }}
+            >
+              <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                {label}
+              </span>
+              <Btn
+                size="sm"
+                variant="ghost"
+                onClick={() => setQtyColor(p.product, color, val - 1)}
+              >
+                −
+              </Btn>
+              <input
+                value={val || ""}
+                onChange={(e) =>
+                  setQtyColor(
+                    p.product,
+                    color,
+                    parseInt(e.target.value.replace(/\D/g, "")) || 0,
+                  )
+                }
+                placeholder="0"
+                style={{
+                  width: 46,
+                  textAlign: "center",
+                  background: "var(--s1)",
+                  border: "1px solid var(--b1)",
+                  borderRadius: 8,
+                  color: "var(--text)",
+                  padding: "6px 4px",
+                  fontFamily: "JetBrains Mono, monospace",
+                  fontSize: 14,
+                  outline: "none",
+                }}
+              />
+              <Btn
+                size="sm"
+                variant="green"
+                onClick={() => setQtyColor(p.product, color, val + 1)}
+              >
+                +
+              </Btn>
+            </div>
+          );
 
           return (
             <div
@@ -520,7 +614,7 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
                   </div>
                   <div style={{ fontSize: 12, color: "var(--muted)" }}>
                     {splitActive
-                      ? `бел. ${withPerKg(p, p.ownBoxPriceWhite)} · тём. ${withPerKg(p, p.ownBoxPriceDark)}`
+                      ? `обычн. ${withPerKg(p, cp.white)} · тём. ${withPerKg(p, cp.dark)}`
                       : `${price} сом / шт`}
                     {it.oldBox && (canOldBox || canSplit) && (
                       <span style={{ color: "#d29922", marginLeft: 6 }}>
@@ -529,28 +623,6 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
                     )}
                   </div>
                 </div>
-
-                {qty > 0 && canOldBox && !canSplit && (
-                  <button
-                    onClick={() => toggleOldBox(p.product)}
-                    title={`Клиент забирает в своей таре — цена ${p.ownBoxPrice} сом вместо ${p.price} сом`}
-                    style={{
-                      background: it.oldBox
-                        ? "rgba(210,153,34,0.15)"
-                        : "var(--s1)",
-                      border: `1px solid ${it.oldBox ? "#d29922" : "var(--b1)"}`,
-                      borderRadius: 7,
-                      padding: "5px 8px",
-                      color: it.oldBox ? "#d29922" : "var(--muted)",
-                      fontSize: 11,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    📦 своя тара
-                  </button>
-                )}
 
                 {!splitActive && (
                   <div
@@ -596,141 +668,42 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
                 )}
               </div>
 
-              {canSplit && (rawQty > 0 || it.oldBox) && (
+              {showOptions && (
                 <div
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 10,
+                    flexWrap: "wrap",
+                    gap: 8,
                     marginTop: 8,
                   }}
                 >
-                  <button
-                    onClick={() => toggleOldBox(p.product)}
-                    title="Клиент забирает в своей таре — указать отдельно белого и тёмного"
-                    style={{
-                      background: it.oldBox
-                        ? "rgba(210,153,34,0.15)"
-                        : "var(--s1)",
-                      border: `1px solid ${it.oldBox ? "#d29922" : "var(--b1)"}`,
-                      borderRadius: 7,
-                      padding: "5px 8px",
-                      color: it.oldBox ? "#d29922" : "var(--muted)",
-                      fontSize: 11,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    📦 старая коробка
-                  </button>
-
+                  {(canOldBox || canSplit) && (
+                    <button
+                      onClick={() => toggleOldBox(p.product)}
+                      title={
+                        canSplit
+                          ? "Клиент забирает в своей таре — указать отдельно обычное и тёмное"
+                          : `Клиент забирает в своей таре — цена ${p.ownBoxPrice} сом вместо ${p.price} сом`
+                      }
+                      style={optBtn(!!it.oldBox)}
+                    >
+                      📦 старая коробка
+                    </button>
+                  )}
+                  {hasDark && (
+                    <button
+                      onClick={() => toggleDark(p.product)}
+                      title={`Тёмное печенье: ${p.priceDark} сом вместо ${p.price} сом`}
+                      style={optBtn(!!it.dark)}
+                    >
+                      🍫 Тёмные
+                    </button>
+                  )}
                   {splitActive && (
                     <>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 5,
-                        }}
-                      >
-                        <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
-                          белый
-                        </span>
-                        <Btn
-                          size="sm"
-                          variant="ghost"
-                          onClick={() =>
-                            setQtyColor(p.product, "white", qtyWhite - 1)
-                          }
-                        >
-                          −
-                        </Btn>
-                        <input
-                          value={qtyWhite || ""}
-                          onChange={(e) =>
-                            setQtyColor(
-                              p.product,
-                              "white",
-                              parseInt(e.target.value.replace(/\D/g, "")) || 0,
-                            )
-                          }
-                          placeholder="0"
-                          style={{
-                            width: 46,
-                            textAlign: "center",
-                            background: "var(--s1)",
-                            border: "1px solid var(--b1)",
-                            borderRadius: 8,
-                            color: "var(--text)",
-                            padding: "6px 4px",
-                            fontFamily: "JetBrains Mono, monospace",
-                            fontSize: 14,
-                            outline: "none",
-                          }}
-                        />
-                        <Btn
-                          size="sm"
-                          variant="green"
-                          onClick={() =>
-                            setQtyColor(p.product, "white", qtyWhite + 1)
-                          }
-                        >
-                          +
-                        </Btn>
-                      </div>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 5,
-                        }}
-                      >
-                        <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
-                          тёмный
-                        </span>
-                        <Btn
-                          size="sm"
-                          variant="ghost"
-                          onClick={() =>
-                            setQtyColor(p.product, "dark", qtyDark - 1)
-                          }
-                        >
-                          −
-                        </Btn>
-                        <input
-                          value={qtyDark || ""}
-                          onChange={(e) =>
-                            setQtyColor(
-                              p.product,
-                              "dark",
-                              parseInt(e.target.value.replace(/\D/g, "")) || 0,
-                            )
-                          }
-                          placeholder="0"
-                          style={{
-                            width: 46,
-                            textAlign: "center",
-                            background: "var(--s1)",
-                            border: "1px solid var(--b1)",
-                            borderRadius: 8,
-                            color: "var(--text)",
-                            padding: "6px 4px",
-                            fontFamily: "JetBrains Mono, monospace",
-                            fontSize: 14,
-                            outline: "none",
-                          }}
-                        />
-                        <Btn
-                          size="sm"
-                          variant="green"
-                          onClick={() =>
-                            setQtyColor(p.product, "dark", qtyDark + 1)
-                          }
-                        >
-                          +
-                        </Btn>
-                      </div>
+                      {stepper("white", qtyWhite, "обычные")}
+                      {stepper("dark", qtyDark, "тёмные")}
                     </>
                   )}
                 </div>
