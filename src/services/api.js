@@ -79,6 +79,8 @@ export const updatePayment = (d) => apiPost({ action: "updatePayment", ...d });
 export const deletePayment = (paymentId) =>
   apiPost({ action: "deletePayment", paymentId });
 export const saveReturn = (d) => apiPost({ action: "saveReturn", ...d });
+export const updateReturn = (d) => apiPost({ action: "updateReturn", ...d });
+export const deleteReturn = (id) => apiPost({ action: "deleteReturn", id });
 export const saveDebtReturn = (d) =>
   apiPost({ action: "saveDebtReturn", ...d });
 

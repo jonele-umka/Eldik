@@ -6,6 +6,7 @@ import {
   buildOrderGroups,
   getMonth,
   distributeClientCredits,
+  buildReturnCredits,
 } from "../utils/index.js";
 import { dateTimeKey } from "../utils/ledger.js";
 
@@ -108,7 +109,20 @@ export default function OrdersPage({
 
   const allGroups = useMemo(() => {
     const groups = buildOrderGroups(filteredRows);
-    distributeClientCredits(groups, payments, offsets, openingBalances);
+    // переплата по оплаченным заказам после возврата — считаем по ВСЕМ
+    // заказам (не только по отфильтрованным)
+    const returnCredits = buildReturnCredits(
+      buildOrderGroups(arr),
+      store.returns,
+    );
+    distributeClientCredits(
+      groups,
+      payments,
+      offsets,
+      openingBalances,
+      returnCredits,
+      store.returns,
+    );
 
     // Сортируем по дате ДОСТАВКИ (не создания заказа) — иначе если
     // сегодня после обеда оформляешь вчерашний заказ, он попадёт наверх
@@ -119,7 +133,15 @@ export default function OrdersPage({
       const diff2 = dateTimeKey(b.orderDate) - dateTimeKey(a.orderDate);
       return sortDir === "desc" ? diff2 : -diff2;
     });
-  }, [filteredRows, sortDir, payments, offsets, openingBalances]);
+  }, [
+    filteredRows,
+    arr,
+    sortDir,
+    payments,
+    offsets,
+    openingBalances,
+    store.returns,
+  ]);
 
   const totalPages = Math.ceil(allGroups.length / GPAGE);
   const groups = allGroups.slice((page - 1) * GPAGE, page * GPAGE);
@@ -148,6 +170,29 @@ export default function OrdersPage({
   const kpiTotal = allGroups.reduce((s, g) => s + g.totalSum, 0);
   const kpiPaid = allGroups.reduce((s, g) => s + g.paidAmount, 0);
   const kpiRet = allGroups.reduce((s, g) => s + g.returnedAmount, 0);
+  // Возвраты без привязки к заказу (ручные, идут в начальный остаток) —
+  // для клиентов, чьи заказы сейчас на экране. Только показываются в
+  // карточке "Возвраты", чтобы сумма совпадала со страницей "Возвраты".
+  const kpiOpeningRet = (() => {
+    const names = new Set(
+      allGroups.map((g) =>
+        String(g.client || "")
+          .trim()
+          .toLowerCase(),
+      ),
+    );
+    return (Array.isArray(store.returns) ? store.returns : [])
+      .filter(
+        (r) =>
+          String(r.orderId || "").trim() === "OPENING" &&
+          names.has(
+            String(r.client || "")
+              .trim()
+              .toLowerCase(),
+          ),
+      )
+      .reduce((s, r) => s + Number(r.amount || 0), 0);
+  })();
   const kpiDebt = allGroups.reduce((s, g) => {
     const effectiveTotal = Math.max(
       0,
@@ -203,7 +248,11 @@ export default function OrdersPage({
         <KPI label="Заказов" value={allGroups.length} color="var(--accent)" />
         <KPI label="Сумма" value={fmtM(kpiTotal)} color="var(--accent)" />
         <KPI label="Оплачено" value={fmtM(kpiPaid)} color="var(--green)" />
-        <KPI label="Возвраты" value={fmtM(kpiRet)} color="var(--yellow)" />
+        <KPI
+          label="Возвраты"
+          value={fmtM(kpiRet + kpiOpeningRet)}
+          color="var(--yellow)"
+        />
         <KPI label="Долг" value={fmtM(kpiDebt)} color="var(--red)" />
         <KPI
           label="Расходы"

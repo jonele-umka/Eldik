@@ -124,16 +124,22 @@ export default function FinancePage({ data, orders }) {
   let allVolume = 0,
     allIncome = 0,
     allExpense = 0,
-    allReturns = 0;
+    allReturns = 0, // стоимость всех возвратов (по дате возврата)
+    allCashReturns = 0; // из них уходит из кассы (по оплаченным заказам)
+  const valueOf = (d) =>
+    d.returnsValue !== undefined
+      ? Number(d.returnsValue || 0)
+      : Number(d.returns || 0);
   Object.values(report).forEach((monthData) => {
     Object.values(monthData).forEach((d) => {
       allVolume += Number(d.totalVolume || 0);
       allIncome += Number(d.income || 0);
       allExpense += Number(d.expense || 0);
-      allReturns += Number(d.returns || 0);
+      allReturns += valueOf(d);
+      allCashReturns += Number(d.returns || 0);
     });
   });
-  const allBalance = allIncome - allExpense - allReturns;
+  const allBalance = allIncome - allExpense - allCashReturns;
 
   // Экспериментальный блок (по просьбе пользователя): доля Урмата — 5% не
   // от поступивших оплат, а от ОБЪЁМА заказов (все заказы, независимо от
@@ -234,7 +240,8 @@ export default function FinancePage({ data, orders }) {
         >
           Коммуналка и зарплаты учитываются через «Расходы» и уже вычтены. Доля
           Урмата считается от объёма заказов (не от оплат) и не включает заказы
-          клиента «Аман».
+          клиента «Аман». «Возврат» — стоимость возвращённых товаров по дате
+          возврата; из кассы вычитается только часть по уже оплаченным заказам.
         </div>
       </div>
 
@@ -257,15 +264,17 @@ export default function FinancePage({ data, orders }) {
           let totalVolume = 0,
             totalIncome = 0,
             totalExpense = 0,
-            totalReturns = 0;
+            totalReturns = 0,
+            totalCashReturns = 0;
           days.forEach((day) => {
             totalVolume += Number(monthData[day].totalVolume || 0);
             totalIncome += Number(monthData[day].income || 0);
             totalExpense += Number(monthData[day].expense || 0);
-            totalReturns += Number(monthData[day].returns || 0);
+            totalReturns += valueOf(monthData[day]);
+            totalCashReturns += Number(monthData[day].returns || 0);
           });
           const finalVolume = totalVolume - totalReturns - totalExpense;
-          const balance = totalIncome - totalExpense - totalReturns;
+          const balance = totalIncome - totalExpense - totalCashReturns;
           const isOpen = !closedMonths[month];
 
           return (
@@ -343,11 +352,12 @@ export default function FinancePage({ data, orders }) {
                         const d = monthData[day];
                         const income = Number(d.income || 0);
                         const expense = Number(d.expense || 0);
-                        const returns = Number(d.returns || 0);
+                        const returns = valueOf(d);
+                        const cashReturns = Number(d.returns || 0);
                         const volume = Number(d.totalVolume || 0);
                         if (income === 0 && expense === 0 && returns === 0)
                           return null;
-                        const dayBalance = income - expense - returns;
+                        const dayBalance = income - expense - cashReturns;
                         return (
                           <TR key={day}>
                             <TD>

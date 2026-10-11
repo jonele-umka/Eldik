@@ -4,6 +4,7 @@ import {
   buildOrderGroups,
   parseDate,
   distributeClientCredits,
+  buildReturnCredits,
   sameClient,
 } from "../utils/index.js";
 import { dateTimeKey, fmtDateTime } from "../utils/ledger.js";
@@ -478,6 +479,8 @@ export default function ClientDetailPage({
         normPayments,
         normOffsets,
         normOpening,
+        buildReturnCredits(normGroups, clientReturns),
+        clientReturns.map((r) => ({ ...r, client })),
       );
 
     // Для отображения новые заказы сверху
@@ -494,6 +497,7 @@ export default function ClientDetailPage({
     directPayments,
     clientOffsets,
     clientOpening,
+    clientReturns,
     client,
     clientKey,
   ]);

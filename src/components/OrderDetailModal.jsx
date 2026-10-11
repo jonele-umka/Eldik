@@ -253,6 +253,44 @@ export default function OrderDetailModal({ group, onClose }) {
     return map;
   }, [allReturns, group.client]);
 
+  // Сколько по ЭТОМУ заказу уже возвращено: товар -> шт (возврат сам
+  // раскладывается по заказам клиента, привязка — через ID заказа).
+  const returnedInOrder = useMemo(() => {
+    const map = {};
+    allReturns
+      .filter(
+        (r) => String(r.orderId || "").trim() === String(group.oid).trim(),
+      )
+      .forEach((r) => {
+        const key = String(r.product || "").trim();
+        if (key) map[key] = (map[key] || 0) + Number(r.quantity || 0);
+      });
+    return map;
+  }, [allReturns, group.oid]);
+
+  // Всё, что клиент когда-либо заказывал (по ВСЕМ его заказам), а не только
+  // товары этого заказа — возврат можно оформить на любой из них.
+  // product -> сколько всего куплено.
+  const clientBought = useMemo(() => {
+    const map = {};
+    const all = Array.isArray(data.orders) ? data.orders : [];
+    all
+      .filter((r) => norm(r.client) === norm(group.client))
+      .forEach((r) => {
+        const key = String(r.product || "").trim();
+        if (!key) return;
+        map[key] = (map[key] || 0) + Number(r.quantity || 0);
+      });
+    // страховка: если список заказов ещё не загрузился — хотя бы этот заказ
+    if (!Object.keys(map).length) {
+      rows.forEach((r) => {
+        const key = String(r.product || "").trim();
+        if (key) map[key] = (map[key] || 0) + Number(r.quantity || 0);
+      });
+    }
+    return map;
+  }, [data.orders, group.client, rows]);
+
   const totalSum = rows.reduce(
     (s, r) => s + (Number(r.quantity) || 0) * priceForRow(r),
     0,
@@ -314,6 +352,9 @@ export default function OrderDetailModal({ group, onClose }) {
     totalSum - returnedAmount - stockOutDeduction - notFitDeduction,
   );
   const debt = Math.max(0, netSum - paidAmount);
+  // Оплачено больше, чем осталось после возврата — излишек засчитывается
+  // в долги клиента по другим заказам (см. getDebtors в Code.gs).
+  const overpaid = returnedAmount > 0 ? Math.max(0, paidAmount - netSum) : 0;
 
   /* ─── состав заказа ─── */
   const setRow = (i, patch) =>
@@ -680,8 +721,7 @@ export default function OrderDetailModal({ group, onClose }) {
     const qty = Number(retQty);
     if (!qty || qty <= 0) return toast("Укажите количество", "err");
 
-    const row = rows.find((r) => r.product === retProduct);
-    const bought = Number(row?.quantity || 0);
+    const bought = Number(clientBought[retProduct] || 0);
     const already = returnedByProduct[retProduct] || 0;
     if (qty > bought - already)
       return toast(
@@ -969,6 +1009,12 @@ export default function OrderDetailModal({ group, onClose }) {
                       {canSplit &&
                         r.oldBoxColor &&
                         (r.oldBoxColor === "white" ? " · белый" : " · тёмный")}
+                    </span>
+                  )}
+                  {returnedInOrder[String(r.product || "").trim()] > 0 && (
+                    <span style={{ color: "var(--yellow)", marginLeft: 6 }}>
+                      ↩ возвращено{" "}
+                      {returnedInOrder[String(r.product || "").trim()]}
                     </span>
                   )}
                   {!(r.oldBox && canSplit) && r.oldBoxColor === "dark" && (
@@ -1380,50 +1426,17 @@ export default function OrderDetailModal({ group, onClose }) {
         </div>
       )}
 
-      {/* Возврат */}
-      {sectionTitle("Оформить возврат")}
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          flexWrap: "wrap",
-          alignItems: "flex-end",
-        }}
-      >
-        <div style={{ flex: 2, minWidth: 170 }}>
-          <Field label="Товар">
-            <SelectField
-              value={retProduct}
-              onChange={setRetProduct}
-              options={rows.map((r) => {
-                const already = returnedByProduct[r.product] || 0;
-                const left = Math.max(0, (Number(r.quantity) || 0) - already);
-                return {
-                  value: r.product,
-                  label: `${r.product} — можно ${left} шт`,
-                };
-              })}
-              placeholder="— выберите —"
-            />
-          </Field>
+      {/* Возврат оформляется на странице «Возвраты» — там видны все товары
+          клиента из всех его заказов, и возврат сам раскладывается по
+          заказам. Здесь только итог. */}
+      {overpaid > 0 && (
+        <div style={{ fontSize: 12, color: "var(--yellow)", marginBottom: 10 }}>
+          Переплата {fmtM(overpaid)} после возврата — засчитана в долг клиента
+          по другим заказам.
         </div>
-        <div style={{ flex: 1, minWidth: 110 }}>
-          <Field label="Количество">
-            <TextInput
-              inputMode="numeric"
-              value={retQty}
-              onChange={(e) => setRetQty(e.target.value.replace(/\D/g, ""))}
-            />
-          </Field>
-        </div>
-        <Btn
-          variant="warn"
-          onClick={handleReturn}
-          loading={busy}
-          style={{ marginBottom: 12 }}
-        >
-          ↩️ Возврат
-        </Btn>
+      )}
+      <div style={{ fontSize: 12, color: "var(--muted)" }}>
+        Возврат товара — на странице «Возвраты».
       </div>
     </Modal>
   );

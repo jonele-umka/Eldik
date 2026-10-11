@@ -148,11 +148,42 @@ export const parseDate = (s) => {
 // Возвращает { groups, openingRemainingByClient } — groups мутируется
 // на месте (как и раньше), поэтому старые вызовы, игнорирующие
 // возвращаемое значение, продолжают работать без изменений.
+// Возврат по уже ОПЛАЧЕННОМУ заказу: оплата получается больше, чем осталось
+// после возврата. Эта переплата не пропадает — становится зачётом (с
+// датой возврата) и гасит другие долги клиента. Та же логика, что и в
+// getDebtors (Code.gs), чтобы цифры совпадали. groups — ВСЕ заказы
+// (не отфильтрованные), returns — список возвратов.
+export function buildReturnCredits(groups, returns) {
+  const arrR = Array.isArray(returns) ? returns : [];
+  const out = [];
+  (Array.isArray(groups) ? groups : []).forEach((g) => {
+    const sum = Number(g.totalSum || 0);
+    const paid = Number(g.paidAmount || 0);
+    const ret = Number(g.returnedAmount || 0);
+    const byReturn = Math.max(0, paid + ret - sum) - Math.max(0, paid - sum);
+    if (!(byReturn > 0)) return;
+    let date = 0;
+    arrR.forEach((r) => {
+      if (String(r.orderId || "").trim() === String(g.oid).trim()) {
+        date = Math.max(date, parseDate(r.date));
+      }
+    });
+    out.push({
+      client: g.client,
+      amount: byReturn,
+      date: date || parseDate(g.orderDate),
+    });
+  });
+  return out;
+}
+
 export function distributeClientCredits(
   groups,
   payments,
   offsets,
   openingBalances,
+  returnCredits,
+  returns,
 ) {
   const norm = (s) =>
     String(s || "")
@@ -169,7 +200,11 @@ export function distributeClientCredits(
   const pushCredit = (key, amount, date, isOffset) => {
     if (!key || !(amount > 0)) return;
     if (!creditsByClient[key]) creditsByClient[key] = [];
-    creditsByClient[key].push({ amount, date: parseDate(date) || 0, isOffset });
+    creditsByClient[key].push({
+      amount,
+      date: (typeof date === "number" ? date : parseDate(date)) || 0,
+      isOffset,
+    });
   };
   arrP.forEach((p) => {
     const orderId = String(p.orderId || "").trim();
@@ -185,6 +220,9 @@ export function distributeClientCredits(
   arrO.forEach((o) => {
     pushCredit(norm(o.client), Number(o.amount || 0), o.date, true);
   });
+  (Array.isArray(returnCredits) ? returnCredits : []).forEach((c) => {
+    pushCredit(norm(c.client), Number(c.amount || 0), c.date, false);
+  });
 
   const openingByClient = {};
   const openingDateByClient = {};
@@ -196,6 +234,25 @@ export function distributeClientCredits(
     const d = parseDate(o.date) || 0;
     openingDateByClient[key] =
       key in openingDateByClient ? Math.min(openingDateByClient[key], d) : d;
+  });
+
+  // Ручные возвраты (OrderID = "OPENING": товара нет в заказах) сначала
+  // гасят начальный остаток клиента; излишек — зачёт в долги по заказам.
+  // Та же логика, что в getDebtors (Code.gs).
+  const openingRet = {};
+  (Array.isArray(returns) ? returns : []).forEach((r) => {
+    if (String(r.orderId || "").trim() !== "OPENING") return;
+    const key = norm(r.client);
+    if (!key) return;
+    const o = openingRet[key] || (openingRet[key] = { sum: 0, date: 0 });
+    o.sum += Number(r.amount || 0);
+    o.date = Math.max(o.date, parseDate(r.date));
+  });
+  Object.keys(openingRet).forEach((key) => {
+    const have = openingByClient[key] || 0;
+    const applied = Math.min(openingRet[key].sum, Math.max(0, have));
+    openingByClient[key] = have - applied;
+    pushCredit(key, openingRet[key].sum - applied, openingRet[key].date, false);
   });
 
   const byClient = {};
