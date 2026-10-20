@@ -115,7 +115,7 @@ function MiniStat({ label, value, color, bold }) {
   );
 }
 
-export default function FinancePage({ data, orders }) {
+export default function FinancePage({ data, orders, payments }) {
   const report = data || {};
   const [closedMonths, setClosedMonths] = useState({});
 
@@ -125,7 +125,8 @@ export default function FinancePage({ data, orders }) {
     allIncome = 0,
     allExpense = 0,
     allReturns = 0, // стоимость всех возвратов (по дате возврата)
-    allCashReturns = 0; // из них уходит из кассы (по оплаченным заказам)
+    allCashReturns = 0, // из них уходит из кассы (по оплаченным заказам)
+    allBarter = 0; // оплата сырьём (Украина) — гасит долг, но не деньги
   const valueOf = (d) =>
     d.returnsValue !== undefined
       ? Number(d.returnsValue || 0)
@@ -134,6 +135,7 @@ export default function FinancePage({ data, orders }) {
     Object.values(monthData).forEach((d) => {
       allVolume += Number(d.totalVolume || 0);
       allIncome += Number(d.income || 0);
+      allBarter += Number(d.barter || 0);
       allExpense += Number(d.expense || 0);
       allReturns += valueOf(d);
       allCashReturns += Number(d.returns || 0);
@@ -141,19 +143,87 @@ export default function FinancePage({ data, orders }) {
   });
   const allBalance = allIncome - allExpense - allCashReturns;
 
-  // Экспериментальный блок (по просьбе пользователя): доля Урмата — 5% не
-  // от поступивших оплат, а от ОБЪЁМА заказов (все заказы, независимо от
-  // того, оплачены они уже или нет) за вычетом расходов и возвратов — и
-  // БЕЗ заказов клиента "Аман" (это агент, который продаёт своим
-  // собственным клиентам, но все они записаны в базе под именем "Аман" —
-  // его обороты в долю Урмата не идут). Остальное — чистая прибыль
-  // Акылбека. Коммуналка и зарплаты уже вычтены через обычные "Расходы"
-  // (категории "Коммуналка" / "Зарплата: ...").
-  const { volume: volumeExclAman, returns: returnsExclAman } =
-    calcVolumeExcludingAman(orders);
-  const myBase = Math.max(0, volumeExclAman - allExpense - returnsExclAman);
-  const myCut = myBase * 0.05;
-  const akylbekNetProfit = allBalance - myCut;
+  // Доли считаются от ПОСТУПИВШИХ денег (платежей):
+  //  • Урмат — 5% от платежей рынка «Дордой-фуд» (без Амана и Украины),
+  //    по периодам с 15-го по 14-е число;
+  //  • Аман — 4% от платежей клиента «Аман», за всё время;
+  //  • «Украина» платит сырьём (бартер): входит в кассу и в долю Урмата.
+  const parseDay = (str) => {
+    const [dd, mm, yy] = String(str || "")
+      .split(" ")[0]
+      .split(".")
+      .map(Number);
+    return dd && mm && yy ? { dd, mm, yy } : null;
+  };
+  const MS = [
+    "янв",
+    "фев",
+    "мар",
+    "апр",
+    "мая",
+    "июн",
+    "июл",
+    "авг",
+    "сен",
+    "окт",
+    "ноя",
+    "дек",
+  ];
+  const periodKeyOf = (t) => {
+    let y = t.yy,
+      m = t.mm;
+    if (t.dd < 15) {
+      m -= 1;
+      if (m === 0) {
+        m = 12;
+        y -= 1;
+      }
+    }
+    return `${y}-${String(m).padStart(2, "0")}`;
+  };
+  const urmatPeriods = {};
+  let amanReceived = 0;
+  (Array.isArray(payments) ? payments : []).forEach((p) => {
+    const c = normClient(p.client);
+    const amount = Number(p.amount || 0);
+    if (c === "аман") {
+      amanReceived += amount;
+      return;
+    }
+    if (c !== "украина" && normClient(p.market) !== "дордой-фуд") return;
+    const t = parseDay(p.paymentDate);
+    if (!t) return;
+    const key = periodKeyOf(t);
+    urmatPeriods[key] = (urmatPeriods[key] || 0) + amount;
+  });
+  // Объём заказов рынка «Дордой-фуд» (без Амана) по тем же периодам.
+  const volumePeriods = {};
+  (Array.isArray(orders) ? orders : []).forEach((o) => {
+    if (
+      normClient(o.market) !== "дордой-фуд" ||
+      normClient(o.client) === "аман"
+    )
+      return;
+    const t = parseDay(o.orderDate);
+    if (!t) return;
+    const key = periodKeyOf(t);
+    volumePeriods[key] = (volumePeriods[key] || 0) + cleanNum(o.total);
+  });
+  const dordoiVolume = Object.values(volumePeriods).reduce((a, b) => a + b, 0);
+  const periodLabel = (key) => {
+    const [y, m] = key.split("-").map(Number);
+    const ny = m === 12 ? y + 1 : y;
+    const nm = m === 12 ? 1 : m + 1;
+    return `15 ${MS[m - 1]} ${y} – 14 ${MS[nm - 1]} ${ny}`;
+  };
+  const periodKeys = [
+    ...new Set([...Object.keys(urmatPeriods), ...Object.keys(volumePeriods)]),
+  ]
+    .sort()
+    .reverse();
+  const urmatTotal = periodKeys.reduce((s, k) => s + urmatPeriods[k] * 0.05, 0);
+  const amanCut = amanReceived * 0.04;
+  const akylbekNetProfit = allBalance - urmatTotal - amanCut;
 
   const sectionStyle = { ...S.card, marginBottom: 20 };
   const sectionHeader = {
@@ -185,63 +255,76 @@ export default function FinancePage({ data, orders }) {
         />
       </div>
 
-      <div
-        style={{
-          ...S.card,
-          marginBottom: 20,
-          padding: "16px 18px",
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 24,
-        }}
-      >
-        <div>
-          <div
-            style={{
-              fontSize: 11,
-              color: "var(--muted)",
-              textTransform: "uppercase",
-            }}
-          >
-            Доля Урмата (5% от объёма, без Амана)
-          </div>
-          <div
-            style={{ fontSize: 18, fontWeight: 700, color: "var(--purple)" }}
-          >
-            {fmtM(myCut)}
-          </div>
-        </div>
-        <div>
-          <div
-            style={{
-              fontSize: 11,
-              color: "var(--muted)",
-              textTransform: "uppercase",
-            }}
-          >
-            Чистая прибыль Акылбека
-          </div>
-          <div
-            style={{
-              fontSize: 18,
-              fontWeight: 700,
-              color: akylbekNetProfit >= 0 ? "var(--green)" : "var(--red)",
-            }}
-          >
-            {fmtM(akylbekNetProfit)}
-          </div>
-        </div>
+      <div style={{ ...S.card, marginBottom: 20, padding: "16px 18px" }}>
         <div
           style={{
-            fontSize: 11.5,
-            color: "var(--muted2)",
-            alignSelf: "center",
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 24,
+            marginBottom: 12,
           }}
         >
-          Коммуналка и зарплаты учитываются через «Расходы» и уже вычтены. Доля
-          Урмата считается от объёма заказов (не от оплат) и не включает заказы
-          клиента «Аман». «Возврат» — стоимость возвращённых товаров по дате
-          возврата; из кассы вычитается только часть по уже оплаченным заказам.
+          <MiniStat
+            label="Доля Амана (4%, всего)"
+            value={amanCut}
+            color="var(--purple)"
+          />
+          <MiniStat
+            label="Доля Урмата (5%, всего)"
+            value={urmatTotal}
+            color="var(--purple)"
+          />
+          <MiniStat
+            label="Объём заказов Дордой-фуд"
+            value={dordoiVolume}
+            color="var(--accent)"
+          />
+          <MiniStat
+            label="Из доходов — бартер (Украина)"
+            value={allBarter}
+            color="var(--yellow)"
+          />
+          <MiniStat
+            label="Чистая прибыль Акылбека"
+            value={akylbekNetProfit}
+            color={akylbekNetProfit >= 0 ? "var(--green)" : "var(--red)"}
+            bold
+          />
+        </div>
+        {periodKeys.length > 0 && (
+          <table
+            style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}
+          >
+            <thead>
+              <tr style={{ background: "var(--s2)" }}>
+                {[
+                  "Период Урмата (с 15 по 14)",
+                  "Объём заказов (Дордой-фуд)",
+                  "Поступило",
+                  "5%",
+                ].map((h) => (
+                  <TH key={h}>{h}</TH>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {periodKeys.map((k) => (
+                <TR key={k}>
+                  <TD>{periodLabel(k)}</TD>
+                  <TD>{fmtM(volumePeriods[k] || 0)}</TD>
+                  <TD>{fmtM(urmatPeriods[k] || 0)}</TD>
+                  <TD>{fmtM((urmatPeriods[k] || 0) * 0.05)}</TD>
+                </TR>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <div style={{ fontSize: 11.5, color: "var(--muted2)", marginTop: 10 }}>
+          Доли считаются от поступивших денег. Урмат — рынок «Дордой-фуд» и
+          клиент «Украина», без Амана. Аман — 4% от оплат клиента «Аман».
+          Украина платит сырьём (бартер): это входит в «Доходы», «Кассу» и в
+          долю Урмата, строка «Бартер» показывает, сколько из доходов пришло
+          так. Возвраты в долях не учитываются.
         </div>
       </div>
 

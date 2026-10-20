@@ -206,8 +206,16 @@ export function distributeClientCredits(
       isOffset,
     });
   };
+  const openingPaidByClient = {};
   arrP.forEach((p) => {
     const orderId = String(p.orderId || "").trim();
+    if (orderId === "OPENING") {
+      // оплата, внесённая специально на нач. остаток
+      const key = norm(p.client);
+      openingPaidByClient[key] =
+        (openingPaidByClient[key] || 0) + Number(p.amount || 0);
+      return;
+    }
     if (orderId) return; // уже учтено бэкендом в paidAmount заказа
     // У оплаты дата лежит в paymentDate (а не date, как у заказа/зачёта/
     // нач. остатка) — раньше здесь было p.date, которого на объекте
@@ -253,6 +261,13 @@ export function distributeClientCredits(
     const applied = Math.min(openingRet[key].sum, Math.max(0, have));
     openingByClient[key] = have - applied;
     pushCredit(key, openingRet[key].sum - applied, openingRet[key].date, false);
+  });
+
+  Object.keys(openingPaidByClient).forEach((key) => {
+    openingByClient[key] = Math.max(
+      0,
+      (openingByClient[key] || 0) - openingPaidByClient[key],
+    );
   });
 
   const byClient = {};
@@ -314,25 +329,35 @@ export function distributeClientCredits(
       .slice()
       .sort((a, b) => a.date - b.date);
 
+    // Оплаты гасят ТОЛЬКО заказы (от старых к новым), нач. остаток не
+    // трогают (только оплата с галочкой «на начальный остаток» и ручной
+    // возврат). Сначала — долги на момент оплаты, остаток оплаты — на любые
+    // неоплаченные заказы по порядку. Та же логика, что в getDebtors.
+    const apply = (credit, item, remaining) => {
+      const applied = Math.min(remaining, item.remaining);
+      item.remaining -= applied;
+      if (item.kind === "order") {
+        const g = item.group;
+        g.totalPaidAmount =
+          (g.totalPaidAmount ?? Number(g.paidAmount || 0)) + applied;
+        if (credit.isOffset) g.offsetAmount = (g.offsetAmount || 0) + applied;
+      }
+      return remaining - applied;
+    };
     credits.forEach((credit) => {
       let remaining = credit.amount;
       for (const item of debts) {
         if (remaining <= 0) break;
         if (item.date > credit.date) continue;
+        if (item.kind === "opening") continue;
         if (item.remaining <= 0) continue;
-        const applied = Math.min(remaining, item.remaining);
-        item.remaining -= applied;
-        remaining -= applied;
-        if (item.kind === "order") {
-          const g = item.group;
-          g.totalPaidAmount =
-            (g.totalPaidAmount ?? Number(g.paidAmount || 0)) + applied;
-          if (credit.isOffset) g.offsetAmount = (g.offsetAmount || 0) + applied;
-        }
+        remaining = apply(credit, item, remaining);
       }
-      // Остаток (если оплата больше вообще всех долгов, существовавших
-      // на тот момент) намеренно никуда не переносится — не должен
-      // задним числом закрывать заказ, оформленный уже после оплаты.
+      for (const item of debts) {
+        if (remaining <= 0) break;
+        if (item.kind !== "order" || item.remaining <= 0) continue;
+        remaining = apply(credit, item, remaining);
+      }
     });
 
     const openingItem = debts.find((d) => d.kind === "opening");

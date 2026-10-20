@@ -339,6 +339,7 @@ export default function ClientDetailPage({
                   market: clientMarket,
                   amount,
                   paymentDate: form.date,
+                  ...(form.toOpening ? { orderId: "OPENING" } : {}),
                 }),
           AFFECTS.payment,
         );
@@ -856,7 +857,7 @@ export default function ClientDetailPage({
         </Field>
         <Field
           label="Сумма, сом"
-          hint="Оплата без привязки к заказу закрывает общий долг"
+          hint="Оплата закрывает заказы (старые первыми). Начальный остаток — только с галочкой ниже"
         >
           <TextInput
             inputMode="numeric"
@@ -864,6 +865,26 @@ export default function ClientDetailPage({
             onChange={(e) => setForm({ ...form, amount: e.target.value })}
           />
         </Field>
+        {!form.id && openingRemaining > 0 && (
+          <label
+            style={{
+              display: "flex",
+              gap: 8,
+              alignItems: "center",
+              fontSize: 13,
+              marginTop: 4,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={!!form.toOpening}
+              onChange={(e) =>
+                setForm({ ...form, toOpening: e.target.checked })
+              }
+            />
+            Оплата начального остатка (осталось {fmtM(openingRemaining)})
+          </label>
+        )}
       </Modal>
 
       {/* Взаимозачёт */}
