@@ -505,6 +505,7 @@ function Shell() {
             data={data.finance}
             orders={data.orders}
             payments={data.payments}
+            onSelectClient={openClientDetail}
           />
         );
       case "payments":

@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { fmtM } from "../utils/index.js";
+import {
+  fmtM,
+  buildOrderGroups,
+  buildMissingMap,
+  orderEffectiveTotal,
+} from "../utils/index.js";
+import { useData } from "../store/DataContext.jsx";
 import { KPI, TR, TD, TH, MoneyCell } from "../components/UI.jsx";
 import { S } from "../utils/styles.js";
 
@@ -88,7 +94,36 @@ function calcVolumeExcludingAman(rawOrders) {
   return { volume, returns };
 }
 
-function MiniStat({ label, value, color, bold }) {
+function SectionTitle({ icon, title, subtitle, color }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        margin: "34px 0 14px",
+        paddingLeft: 12,
+        borderLeft: `4px solid ${color}`,
+      }}
+    >
+      <span style={{ fontSize: 22 }}>{icon}</span>
+      <div>
+        <div
+          style={{ fontSize: 16, fontWeight: 800, letterSpacing: 0.3, color }}
+        >
+          {title}
+        </div>
+        {subtitle && (
+          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+            {subtitle}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MiniStat({ label, value, color, bold, sub }) {
   return (
     <div>
       <div
@@ -111,12 +146,23 @@ function MiniStat({ label, value, color, bold }) {
       >
         {Number(value || 0).toLocaleString()} сом
       </div>
+      {sub && (
+        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+          {sub}
+        </div>
+      )}
     </div>
   );
 }
 
-export default function FinancePage({ data, orders, payments }) {
+export default function FinancePage({
+  data,
+  orders,
+  payments,
+  onSelectClient,
+}) {
   const report = data || {};
+  const { data: store } = useData();
   const [closedMonths, setClosedMonths] = useState({});
 
   const totalDebt = calcDebt(orders);
@@ -142,6 +188,16 @@ export default function FinancePage({ data, orders, payments }) {
     });
   });
   const allBalance = allIncome - allExpense - allCashReturns;
+
+  // Заказы с учётом возвратов, нехватки и «не поместилось» — как в карточках.
+  const stockOutMap = buildMissingMap(store.stockOuts);
+  const notFitMap = buildMissingMap(store.notFits);
+  const orderGroups = buildOrderGroups(Array.isArray(orders) ? orders : []).map(
+    (g) => ({
+      ...g,
+      effective: orderEffectiveTotal(g, stockOutMap, notFitMap),
+    }),
+  );
 
   // Доли считаются от ПОСТУПИВШИХ денег (платежей):
   //  • Урмат — 5% от платежей рынка «Дордой-фуд» (без Амана и Украины),
@@ -182,39 +238,39 @@ export default function FinancePage({ data, orders, payments }) {
     return `${y}-${String(m).padStart(2, "0")}`;
   };
   const DISCOUNT = 0.03;
-  let discountTotal = 0;
   const urmatPeriods = {};
   let amanReceived = 0;
+  let amanMonth = 0;
+  const nowD = new Date();
   (Array.isArray(payments) ? payments : []).forEach((p) => {
     const c = normClient(p.client);
     const amount = Number(p.amount || 0);
     if (c === "аман") {
       amanReceived += amount;
+      const ta = parseDay(p.paymentDate);
+      if (ta && ta.mm === nowD.getMonth() + 1 && ta.yy === nowD.getFullYear())
+        amanMonth += amount;
       return;
     }
     if (c !== "украина" && normClient(p.market) !== "дордой-фуд") return;
     const t = parseDay(p.paymentDate);
     if (!t) return;
     const key = periodKeyOf(t);
-    // Скидка 3% для «Элдияр ДФ» и «Кубаныч ДФ»: доля считается от суммы
-    // за вычетом скидки.
-    const isDiscount = c.includes("элдияр") || c.includes("кубаныч");
-    const disc = isDiscount ? amount * DISCOUNT : 0;
-    discountTotal += disc;
-    urmatPeriods[key] = (urmatPeriods[key] || 0) + amount - disc;
+    // Зарплата — 5% от полученных денег; скидка 3% клиентам на неё не влияет.
+    urmatPeriods[key] = (urmatPeriods[key] || 0) + amount;
   });
   // Объём заказов рынка «Дордой-фуд» (без Амана) по тем же периодам.
   const volumePeriods = {};
-  (Array.isArray(orders) ? orders : []).forEach((o) => {
+  orderGroups.forEach((g) => {
     if (
-      normClient(o.market) !== "дордой-фуд" ||
-      normClient(o.client) === "аман"
+      normClient(g.market) !== "дордой-фуд" ||
+      normClient(g.client) === "аман"
     )
       return;
-    const t = parseDay(o.orderDate);
+    const t = parseDay(g.deliveryDate || g.orderDate);
     if (!t) return;
     const key = periodKeyOf(t);
-    volumePeriods[key] = (volumePeriods[key] || 0) + cleanNum(o.total);
+    volumePeriods[key] = (volumePeriods[key] || 0) + g.effective;
   });
   const dordoiVolume = Object.values(volumePeriods).reduce((a, b) => a + b, 0);
   const periodLabel = (key) => {
@@ -228,8 +284,20 @@ export default function FinancePage({ data, orders, payments }) {
   ]
     .sort()
     .reverse();
-  const urmatTotal = periodKeys.reduce((s, k) => s + urmatPeriods[k] * 0.05, 0);
+  const urmatTotal = periodKeys.reduce(
+    (s, k) => s + (urmatPeriods[k] || 0) * 0.05,
+    0,
+  );
   const amanCut = amanReceived * 0.04;
+  const amanMonthCut = amanMonth * 0.04;
+  const curKey = periodKeyOf({
+    dd: nowD.getDate(),
+    mm: nowD.getMonth() + 1,
+    yy: nowD.getFullYear(),
+  });
+  const curUrmat = (urmatPeriods[curKey] || 0) * 0.05;
+  const curReceived = urmatPeriods[curKey] || 0;
+  const curVolume = volumePeriods[curKey] || 0;
   const akylbekNetProfit = allBalance - urmatTotal - amanCut;
 
   // Клиенты со скидкой 3%: периоды с 16-го по 15-е, по каждому периоду —
@@ -258,12 +326,13 @@ export default function FinancePage({ data, orders, payments }) {
   ].map(({ match, title }) => {
     const periods = {};
     const row = (k) => periods[k] || (periods[k] = { orders: 0, paid: 0 });
-    (Array.isArray(orders) ? orders : []).forEach((o) => {
-      if (!normClient(o.client).includes(match)) return;
-      const t = parseDay(o.orderDate);
+    let realName = "";
+    orderGroups.forEach((g) => {
+      if (!normClient(g.client).includes(match)) return;
+      const t = parseDay(g.deliveryDate || g.orderDate);
       if (!t) return;
-      const qty = Number(o.paidQuantity ?? o.quantity ?? 0);
-      row(kPeriodKey(t)).orders += qty * Number(o.price || 0);
+      if (!realName) realName = g.client;
+      row(kPeriodKey(t)).orders += g.effective;
     });
     (Array.isArray(payments) ? payments : []).forEach((p) => {
       if (!normClient(p.client).includes(match)) return;
@@ -274,7 +343,14 @@ export default function FinancePage({ data, orders, payments }) {
     const keys = Object.keys(periods).sort().reverse();
     const orders_ = keys.reduce((a, k) => a + periods[k].orders, 0);
     const paid = keys.reduce((a, k) => a + periods[k].paid, 0);
-    return { title, periods, keys, orders: orders_, paid };
+    return {
+      title,
+      periods,
+      keys,
+      orders: orders_,
+      paid,
+      realName: realName || title,
+    };
   });
 
   const sectionStyle = { ...S.card, marginBottom: 20 };
@@ -307,7 +383,21 @@ export default function FinancePage({ data, orders, payments }) {
         />
       </div>
 
-      <div style={{ ...S.card, marginBottom: 20, padding: "16px 18px" }}>
+      {/* ===== ЗАРПЛАТА / ДОЛИ ===== */}
+      <SectionTitle
+        icon="💼"
+        color="var(--purple)"
+        title="ЗАРПЛАТА И ДОЛИ"
+        subtitle="Сколько причитается Урмату и Аману и что остаётся Акылбеку — от поступивших денег"
+      />
+      <div
+        style={{
+          ...S.card,
+          marginBottom: 20,
+          padding: "16px 18px",
+          borderTop: "3px solid var(--purple)",
+        }}
+      >
         <div
           style={{
             display: "flex",
@@ -317,83 +407,123 @@ export default function FinancePage({ data, orders, payments }) {
           }}
         >
           <MiniStat
-            label="Доля Амана (4%, всего)"
-            value={amanCut}
+            label={`Доля Урмата 5% · ${periodLabel(curKey)}`}
+            value={curUrmat}
             color="var(--purple)"
+            bold
+            sub={`всего: ${fmtM(urmatTotal)}`}
           />
           <MiniStat
-            label="Доля Урмата (5%, всего)"
-            value={urmatTotal}
+            label={`Доля Амана 4% · ${MONTHS[String(nowD.getMonth() + 1).padStart(2, "0")] || ""}`}
+            value={amanMonthCut}
             color="var(--purple)"
+            bold
+            sub={`всего: ${fmtM(amanCut)}`}
           />
           <MiniStat
-            label="Объём заказов Дордой-фуд"
-            value={dordoiVolume}
+            label="Поступило за этот период (Дордой-фуд)"
+            value={curReceived}
+            color="var(--green)"
+          />
+          <MiniStat
+            label="Объём заказов за этот период (Дордой-фуд)"
+            value={curVolume}
             color="var(--accent)"
+            sub={`всего: ${fmtM(dordoiVolume)}`}
           />
           <MiniStat
-            label="Скидка 3% (Элдияр ДФ, Кубаныч ДФ)"
-            value={discountTotal}
-            color="var(--yellow)"
-          />
-          <MiniStat
-            label="Из доходов — бартер (Украина)"
-            value={allBarter}
-            color="var(--yellow)"
-          />
-          <MiniStat
-            label="Чистая прибыль Акылбека"
+            label="Чистая прибыль Акылбека (всего)"
             value={akylbekNetProfit}
             color={akylbekNetProfit >= 0 ? "var(--green)" : "var(--red)"}
             bold
           />
         </div>
         {periodKeys.length > 0 && (
-          <table
-            style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}
-          >
-            <thead>
-              <tr style={{ background: "var(--s2)" }}>
-                {[
-                  "Период Урмата (с 15 по 14)",
-                  "Объём заказов (Дордой-фуд)",
-                  "Поступило (за вычетом скидки)",
-                  "5%",
-                ].map((h) => (
-                  <TH key={h}>{h}</TH>
+          <div style={{ overflowX: "auto" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 13,
+              }}
+            >
+              <thead>
+                <tr style={{ background: "var(--s2)" }}>
+                  {[
+                    "Период Урмата (с 15 по 14)",
+                    "Объём заказов (Дордой-фуд)",
+                    "Поступило",
+                    "5%",
+                  ].map((h) => (
+                    <TH key={h}>{h}</TH>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {periodKeys.map((k) => (
+                  <TR key={k}>
+                    <TD>{periodLabel(k)}</TD>
+                    <TD>{fmtM(volumePeriods[k] || 0)}</TD>
+                    <TD>{fmtM(urmatPeriods[k] || 0)}</TD>
+                    <TD>{fmtM((urmatPeriods[k] || 0) * 0.05)}</TD>
+                  </TR>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {periodKeys.map((k) => (
-                <TR key={k}>
-                  <TD>{periodLabel(k)}</TD>
-                  <TD>{fmtM(volumePeriods[k] || 0)}</TD>
-                  <TD>{fmtM(urmatPeriods[k] || 0)}</TD>
-                  <TD>{fmtM((urmatPeriods[k] || 0) * 0.05)}</TD>
-                </TR>
-              ))}
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </div>
         )}
         <div style={{ fontSize: 11.5, color: "var(--muted2)", marginTop: 10 }}>
           Доли считаются от поступивших денег. Урмат — рынок «Дордой-фуд» и
           клиент «Украина», без Амана. Аман — 4% от оплат клиента «Аман».
           Украина платит сырьём (бартер): это входит в «Доходы», «Кассу» и в
-          долю Урмата, строка «Бартер» показывает, сколько из доходов пришло
-          так. Для «Элдияр ДФ» и «Кубаныч ДФ» из оплат вычитается скидка 3%, и
-          доля считается от остатка. Возвраты в долях не учитываются.
+          долю Урмата. Скидка 3% для «Элдияр ДФ» и «Кубаныч ДФ» на зарплаты не
+          влияет, она показана только в блоке «Деньги клиентов». Возвраты в
+          долях не учитываются.
         </div>
       </div>
 
+      {/* ===== ДЕНЬГИ КЛИЕНТОВ ===== */}
+      {discountClients.some((dc) => dc.keys.length > 0) && (
+        <SectionTitle
+          icon="👥"
+          color="var(--accent)"
+          title="ДЕНЬГИ КЛИЕНТОВ"
+          subtitle="Сколько заказали за период с 16-го по 15-е и сколько получается после скидки 3% — нажми на имя, чтобы открыть заказы"
+        />
+      )}
       {discountClients.map((dc) =>
         dc.keys.length === 0 ? null : (
           <div
             key={dc.title}
-            style={{ ...S.card, marginBottom: 20, padding: "16px 18px" }}
+            style={{
+              ...S.card,
+              marginBottom: 20,
+              padding: "16px 18px",
+              borderTop: "3px solid var(--accent)",
+            }}
           >
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
-              {dc.title} — заказы по периодам (с 16-го по 15-е), скидка 3%
+            <div
+              onClick={() => onSelectClient && onSelectClient(dc.realName)}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 12,
+                cursor: onSelectClient ? "pointer" : "default",
+              }}
+            >
+              <span style={{ fontSize: 15, fontWeight: 700 }}>{dc.title}</span>
+              {onSelectClient && (
+                <span
+                  style={{
+                    fontSize: 12.5,
+                    color: "var(--accent)",
+                    fontWeight: 600,
+                  }}
+                >
+                  Открыть заказы →
+                </span>
+              )}
             </div>
             <div style={{ overflowX: "auto" }}>
               <table
@@ -454,12 +584,21 @@ export default function FinancePage({ data, orders, payments }) {
             <div
               style={{ fontSize: 11.5, color: "var(--muted2)", marginTop: 10 }}
             >
-              Заказано — по реально отгруженному количеству (без «нет в
-              наличии»). Начальный остаток и возвраты не учитываются.
+              Период — по дате доставки. Сумма заказа — как «К оплате» в
+              карточке: за вычетом возвратов, «нет в наличии» и «не
+              поместилось». Начальный остаток не учитывается.
             </div>
           </div>
         ),
       )}
+
+      {/* ===== ПО МЕСЯЦАМ ===== */}
+      <SectionTitle
+        icon="📅"
+        color="var(--green)"
+        title="ОБЩИЕ ИТОГИ ПО МЕСЯЦАМ"
+        subtitle="Объём, доходы, расходы и касса за календарный месяц"
+      />
 
       {months.length === 0 ? (
         <div

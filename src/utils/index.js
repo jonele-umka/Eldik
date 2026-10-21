@@ -368,3 +368,60 @@ export function distributeClientCredits(
 
   return { groups, openingRemainingByClient };
 }
+
+// Карты "не хватает" / "не поместилось" по ключу "orderId::товар" — те же,
+// что строят карточки заказов.
+export function buildMissingMap(list) {
+  const m = new Map();
+  (Array.isArray(list) ? list : []).forEach((r) => {
+    if (r.orderId && r.product && Number(r.qty) > 0)
+      m.set(`${r.orderId}::${r.product}`, Number(r.qty));
+  });
+  return m;
+}
+
+// Сумма заказа "К оплате": итог минус возвраты, нехватка и "не поместилось".
+// Та же формула, что в карточке заказа (OrderCard) — чтобы суммы на всех
+// страницах совпадали.
+export function orderEffectiveTotal(group, stockOutMap, notFitMap) {
+  const rows = group.rows || [];
+  let deduction = 0;
+  rows.forEach((r) => {
+    if (!r.product) return;
+    const qty = Number(r.paidQuantity ?? r.quantity ?? 0);
+    const missing = Math.min(
+      qty,
+      Number(
+        (stockOutMap && stockOutMap.get(`${group.oid}::${r.product}`)) || 0,
+      ),
+    );
+    const notFit = Math.min(
+      Math.max(0, qty - missing),
+      Number((notFitMap && notFitMap.get(`${group.oid}::${r.product}`)) || 0),
+    );
+    deduction += (missing + notFit) * Number(r.price || 0);
+  });
+  return Math.max(
+    0,
+    Number(group.totalSum || 0) - Number(group.returnedAmount || 0) - deduction,
+  );
+}
+
+export const MONTH_NAMES_RU = [
+  "Январь",
+  "Февраль",
+  "Март",
+  "Апрель",
+  "Май",
+  "Июнь",
+  "Июль",
+  "Август",
+  "Сентябрь",
+  "Октябрь",
+  "Ноябрь",
+  "Декабрь",
+];
+export function monthTitle(key) {
+  const [y, m] = String(key || "").split("-");
+  return `${MONTH_NAMES_RU[Number(m) - 1] || m} ${y || ""}`.trim();
+}

@@ -6,6 +6,9 @@ import {
   distributeClientCredits,
   buildReturnCredits,
   sameClient,
+  getMonth,
+  monthTitle,
+  orderEffectiveTotal,
 } from "../utils/index.js";
 import { dateTimeKey, fmtDateTime } from "../utils/ledger.js";
 import { KPI, TableWrap, TR, TD, TH, MoneyCell } from "../components/UI.jsx";
@@ -235,6 +238,7 @@ export default function ClientDetailPage({
   const [saving, setSaving] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [openOrder, setOpenOrder] = useState(null);
+  const [expandedMonths, setExpandedMonths] = useState({});
 
   const clientRow = arr(store.clients).find((c) => norm(c.name) === clientKey);
   const clientMarket = clientRow?.market || "";
@@ -624,6 +628,31 @@ export default function ClientDetailPage({
   ]);
   const kpiGrid = isMobile ? S.kpiGridMobile : S.kpiGrid;
 
+  // Заказы по календарным месяцам ДОСТАВКИ: сколько заказов и на какую сумму
+  // («К оплате» — как в карточке) за каждый месяц.
+  const monthSections = useMemo(() => {
+    const map = new Map();
+    groups.forEach((g) => {
+      const key = getMonth(g.deliveryDate || g.orderDate) || "—";
+      if (!map.has(key)) map.set(key, { key, groups: [], sum: 0, debt: 0 });
+      const m = map.get(key);
+      const eff = orderEffectiveTotal(g, stockOutMap, notFitMap);
+      const paid =
+        g.totalPaidAmount !== undefined
+          ? Number(g.totalPaidAmount || 0)
+          : Number(g.paidAmount || 0) + Number(g.offsetAmount || 0);
+      m.groups.push(g);
+      m.groups.sort(
+        (a, b) =>
+          parseDate(b.deliveryDate || b.orderDate) -
+          parseDate(a.deliveryDate || a.orderDate),
+      );
+      m.sum += eff;
+      m.debt += Math.max(0, eff - Math.min(eff, paid));
+    });
+    return [...map.values()].sort((a, b) => (a.key < b.key ? 1 : -1));
+  }, [groups, stockOutMap, notFitMap]);
+
   return (
     <>
       <button
@@ -814,17 +843,74 @@ export default function ClientDetailPage({
               Нет заказов
             </div>
           ) : (
-            groups.map((g) => (
-              <OrderCard
-                key={g.oid}
-                group={g}
-                prices={store.prices}
-                stockOutMap={stockOutMap}
-                notFitMap={notFitMap}
-                isMobile={isMobile}
-                onOpen={setOpenOrder}
-              />
-            ))
+            monthSections.map((m, idx) => {
+              const isOpen = expandedMonths[m.key] ?? idx === 0;
+              return (
+                <div key={m.key} style={{ marginBottom: 14 }}>
+                  <div
+                    onClick={() =>
+                      setExpandedMonths((o) => ({ ...o, [m.key]: !isOpen }))
+                    }
+                    style={{
+                      ...S.card,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      flexWrap: "wrap",
+                      gap: 10,
+                      padding: "12px 16px",
+                      cursor: "pointer",
+                      borderLeft: "4px solid var(--accent)",
+                      marginBottom: isOpen ? 10 : 0,
+                    }}
+                  >
+                    <div style={{ fontSize: 15, fontWeight: 700 }}>
+                      {m.key === "—" ? "Без даты" : monthTitle(m.key)}
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 16,
+                        alignItems: "center",
+                        fontSize: 12.5,
+                      }}
+                    >
+                      <span style={{ color: "var(--muted)" }}>
+                        заказов:{" "}
+                        <b style={{ color: "var(--text)" }}>
+                          {m.groups.length}
+                        </b>
+                      </span>
+                      <span style={{ color: "var(--muted)" }}>
+                        сумма:{" "}
+                        <b style={{ color: "var(--accent)" }}>{fmtM(m.sum)}</b>
+                      </span>
+                      {m.debt > 0 && (
+                        <span style={{ color: "var(--muted)" }}>
+                          долг:{" "}
+                          <b style={{ color: "var(--red)" }}>{fmtM(m.debt)}</b>
+                        </span>
+                      )}
+                      <span style={{ color: "var(--muted)" }}>
+                        {isOpen ? "▲" : "▼"}
+                      </span>
+                    </div>
+                  </div>
+                  {isOpen &&
+                    m.groups.map((g) => (
+                      <OrderCard
+                        key={g.oid}
+                        group={g}
+                        prices={store.prices}
+                        stockOutMap={stockOutMap}
+                        notFitMap={notFitMap}
+                        isMobile={isMobile}
+                        onOpen={setOpenOrder}
+                      />
+                    ))}
+                </div>
+              );
+            })
           )}
         </div>
       </div>
