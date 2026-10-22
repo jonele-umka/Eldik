@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { fmt, fmtM, parseQtyExpr } from "../utils/index.js";
+import { fmt, fmtM, parseQtyExpr, sameClient } from "../utils/index.js";
 import { KPI, TableWrap, TR, TD, TH } from "../components/UI.jsx";
 import {
   Btn,
@@ -29,7 +29,12 @@ import {
   updatePurchase,
   updateSupplierPayment,
 } from "../services/api.js";
-import { dateTimeKey, fmtDateTime, isOffsetSupplierPayment, norm } from "../utils/ledger.js";
+import {
+  dateTimeKey,
+  fmtDateTime,
+  isOffsetSupplierPayment,
+  norm,
+} from "../utils/ledger.js";
 
 // Подсказки-товары поставщика собираются из истории покупок, но иногда
 // туда попадает товар, добавленный по ошибке (не тот поставщик). Явно
@@ -132,7 +137,7 @@ export default function SupplierDetailPage({
     const has = new Set();
     arr(purchases).forEach((p) => {
       if (
-        norm(p.supplier) === key &&
+        sameClient(p.supplier, supplier) &&
         p.product &&
         !has.has(norm(p.product)) &&
         !hidden.has(norm(p.product))
@@ -146,7 +151,10 @@ export default function SupplierDetailPage({
 
   const quickProducts = supplierProducts.length
     ? supplierProducts
-    : rawMaterials.map((r) => r.name).filter(Boolean).slice(0, 12);
+    : rawMaterials
+        .map((r) => r.name)
+        .filter(Boolean)
+        .slice(0, 12);
 
   // Убрать товар из подсказок этого поставщика (например, добавили по
   // ошибке) — саму историю покупок не трогаем, только скрываем чип.
@@ -182,7 +190,8 @@ export default function SupplierDetailPage({
           if (known) {
             next.price = String(known);
             const computed = autoPurchaseSum(next);
-            if (computed !== null && !next.sumTouched) next.sum = String(computed);
+            if (computed !== null && !next.sumTouched)
+              next.sum = String(computed);
           }
         }
 
@@ -208,7 +217,11 @@ export default function SupplierDetailPage({
 
   const quickAddPurchaseProduct = (name) => {
     const known = rawByName[norm(name)];
-    const filled = { ...newPurchaseItem(), product: name, price: known ? String(known) : "" };
+    const filled = {
+      ...newPurchaseItem(),
+      product: name,
+      price: known ? String(known) : "",
+    };
     setPurchaseItems((prev) => {
       const idx = prev.findIndex((it) => !it.product.trim());
       if (idx !== -1) {
@@ -226,12 +239,15 @@ export default function SupplierDetailPage({
     setPurchaseItems((prev) => prev.filter((it) => it.key !== itemKey));
 
   const purchaseItemSum = (it) => Number(it.sum) || 0;
-  const purchaseTotal = purchaseItems.reduce((s, it) => s + purchaseItemSum(it), 0);
+  const purchaseTotal = purchaseItems.reduce(
+    (s, it) => s + purchaseItemSum(it),
+    0,
+  );
 
   const entries = useMemo(() => {
     const list = [
       ...arr(openingBalances)
-        .filter((o) => o.type === "supplier" && norm(o.name) === key)
+        .filter((o) => o.type === "supplier" && sameClient(o.name, supplier))
         .map((o) => ({
           kind: "opening",
           id: o.id,
@@ -243,7 +259,7 @@ export default function SupplierDetailPage({
           raw: o,
         })),
       ...arr(purchases)
-        .filter((p) => norm(p.supplier) === key)
+        .filter((p) => sameClient(p.supplier, supplier))
         .map((p) => ({
           kind: "purchase",
           id: p.id,
@@ -255,7 +271,10 @@ export default function SupplierDetailPage({
           raw: p,
         })),
       ...arr(payments)
-        .filter((p) => norm(p.supplier) === key && !isOffsetSupplierPayment(p))
+        .filter(
+          (p) =>
+            sameClient(p.supplier, supplier) && !isOffsetSupplierPayment(p),
+        )
         .map((p) => ({
           kind: "payment",
           id: p.id,
@@ -267,7 +286,7 @@ export default function SupplierDetailPage({
           raw: p,
         })),
       ...arr(offsets)
-        .filter((o) => norm(o.supplier) === key)
+        .filter((o) => sameClient(o.supplier, supplier))
         .map((o) => ({
           kind: "offset",
           id: o.id,
@@ -306,7 +325,8 @@ export default function SupplierDetailPage({
       setPurchaseDate(todayString());
       setPurchaseItems([]);
     }
-    if (kind === "payment") setForm({ date: todayString(), amount: "", comment: "" });
+    if (kind === "payment")
+      setForm({ date: todayString(), amount: "", comment: "" });
     if (kind === "offset")
       setForm({ date: todayString(), client: "", amount: "", comment: "" });
     setModal(kind);
@@ -330,12 +350,15 @@ export default function SupplierDetailPage({
       // "Цена за ед." это цена за мешок целиком. Если вес указан,
       // переводим обратно: цена за кг × вес = цена за мешок.
       const rawPrice = Number(entry.raw.price || 0);
-      const unitPrice = kgNum > 0 ? Math.round(rawPrice * kgNum * 100) / 100 : rawPrice;
+      const unitPrice =
+        kgNum > 0 ? Math.round(rawPrice * kgNum * 100) / 100 : rawPrice;
       setForm({
         id: entry.id,
         date: String(entry.date || "").split(" ")[0],
         product: entry.raw.product || "",
-        quantity: kg ? countFromComment || "1" : String(entry.raw.quantity || "1"),
+        quantity: kg
+          ? countFromComment || "1"
+          : String(entry.raw.quantity || "1"),
         kg,
         price: String(unitPrice || ""),
         amount: String(entry.raw.amount ?? entry.amount ?? ""),
@@ -385,7 +408,10 @@ export default function SupplierDetailPage({
         // а не берём поле "Цена за ед." напрямую — оно про цену за мешок
         // целиком, а не за кг.
         const qty = totalPurchaseQty(form);
-        const price = qty > 0 ? Math.round((sum / qty) * 100) / 100 : Number(form.price) || sum;
+        const price =
+          qty > 0
+            ? Math.round((sum / qty) * 100) / 100
+            : Number(form.price) || sum;
         const kgNum = Number(form.kg) || 0;
         const qtyCount = parseQtyExpr(form.quantity) || 1;
         const comment = [
@@ -411,13 +437,17 @@ export default function SupplierDetailPage({
         // Новое поступление — можно сразу несколько товаров.
         // Обязательно только название товара.
         const validItems = purchaseItems.filter((it) => it.product.trim());
-        if (!validItems.length) return toast("Добавьте хотя бы один товар", "err");
+        if (!validItems.length)
+          return toast("Добавьте хотя бы один товар", "err");
 
         const registeredNow = new Set();
         for (const it of validItems) {
           const sum = Number(it.sum) || 0;
           const qty = totalPurchaseQty(it);
-          const price = qty > 0 ? Math.round((sum / qty) * 100) / 100 : Number(it.price) || sum;
+          const price =
+            qty > 0
+              ? Math.round((sum / qty) * 100) / 100
+              : Number(it.price) || sum;
           const kgNum = Number(it.kg) || 0;
           const qtyCount = parseQtyExpr(it.quantity) || 1;
           const comment = [
@@ -435,7 +465,10 @@ export default function SupplierDetailPage({
             comment,
           });
           const productKey = norm(it.product);
-          if (!knownProductNames.has(productKey) && !registeredNow.has(productKey)) {
+          if (
+            !knownProductNames.has(productKey) &&
+            !registeredNow.has(productKey)
+          ) {
             registeredNow.add(productKey);
             try {
               await saveRawMaterial({ name: it.product.trim(), price });
@@ -472,7 +505,12 @@ export default function SupplierDetailPage({
         await mutate(
           () =>
             form.id
-              ? updateOffset({ id: form.id, amount, date: form.date, comment: form.comment })
+              ? updateOffset({
+                  id: form.id,
+                  amount,
+                  date: form.date,
+                  comment: form.comment,
+                })
               : saveOffset({
                   client: form.client,
                   supplier,
@@ -480,7 +518,8 @@ export default function SupplierDetailPage({
                   date: form.date,
                   comment: form.comment,
                   market:
-                    clientDebtors.find((c) => c.client === form.client)?.market || "",
+                    clientDebtors.find((c) => c.client === form.client)
+                      ?.market || "",
                 }),
           AFFECTS.offset,
         );
@@ -521,7 +560,10 @@ export default function SupplierDetailPage({
           if (entry.kind === "purchase")
             await mutate(() => deletePurchase(entry.id), AFFECTS.purchase);
           else if (entry.kind === "payment")
-            await mutate(() => deleteSupplierPayment(entry.id), AFFECTS.supplierPayment);
+            await mutate(
+              () => deleteSupplierPayment(entry.id),
+              AFFECTS.supplierPayment,
+            );
           else if (entry.kind === "offset")
             await mutate(() => deleteOffset(entry.id), AFFECTS.offset);
           else if (entry.kind === "opening")
@@ -535,19 +577,40 @@ export default function SupplierDetailPage({
 
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          marginBottom: 16,
+        }}
+      >
         <Btn variant="ghost" onClick={onBack}>
           ← Назад
         </Btn>
-        <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>🏭 {supplier}</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>
+          🏭 {supplier}
+        </h2>
       </div>
 
       <div style={S.kpiGrid}>
         <KPI label="Наш долг сейчас" value={fmtM(debt)} color="var(--red)" />
-        <KPI label="Привезено всего" value={fmtM(totals.purchase)} color="var(--green)" />
+        <KPI
+          label="Привезено всего"
+          value={fmtM(totals.purchase)}
+          color="var(--green)"
+        />
         <KPI label="Оплачено" value={fmtM(totals.payment)} color="#ea580c" />
-        <KPI label="Через взаимозачёт" value={fmtM(totals.offset)} color="#a371f7" />
-        <KPI label="Нач. остаток" value={fmtM(totals.opening)} color="#d29922" />
+        <KPI
+          label="Через взаимозачёт"
+          value={fmtM(totals.offset)}
+          color="#a371f7"
+        />
+        <KPI
+          label="Нач. остаток"
+          value={fmtM(totals.opening)}
+          color="#d29922"
+        />
       </div>
 
       <Toolbar>
@@ -560,7 +623,13 @@ export default function SupplierDetailPage({
         <Btn variant="purple" onClick={() => openModal("offset")}>
           🔁 Взаимозачёт
         </Btn>
-        <Btn variant="ghost" onClick={() => { setForm({}); setModal("opening"); }}>
+        <Btn
+          variant="ghost"
+          onClick={() => {
+            setForm({});
+            setModal("opening");
+          }}
+        >
           📌 Начальный остаток
         </Btn>
       </Toolbar>
@@ -568,15 +637,24 @@ export default function SupplierDetailPage({
       <TableWrap title="История операций" count={`${entries.length}`}>
         <thead>
           <tr style={{ background: "var(--s2)" }}>
-            {["Дата", "Тип", "Детали", "Комментарий", "Сумма", ""].map((h, i) => (
-              <TH key={i}>{h}</TH>
-            ))}
+            {["Дата", "Тип", "Детали", "Комментарий", "Сумма", ""].map(
+              (h, i) => (
+                <TH key={i}>{h}</TH>
+              ),
+            )}
           </tr>
         </thead>
         <tbody>
           {entries.length === 0 ? (
             <tr>
-              <td colSpan={6} style={{ textAlign: "center", padding: 40, color: "var(--muted)" }}>
+              <td
+                colSpan={6}
+                style={{
+                  textAlign: "center",
+                  padding: 40,
+                  color: "var(--muted)",
+                }}
+              >
                 История пуста
               </td>
             </tr>
@@ -587,14 +665,21 @@ export default function SupplierDetailPage({
                 <TR key={`${e.kind}_${e.id || i}`}>
                   <TD>{fmtDateTime(e.date)}</TD>
                   <TD>
-                    <span style={{ color: t.color, fontWeight: 600 }}>{t.label}</span>
+                    <span style={{ color: t.color, fontWeight: 600 }}>
+                      {t.label}
+                    </span>
                   </TD>
                   <TD>
                     {e.title}
                     {e.detail ? ` — ${e.detail}` : ""}
                   </TD>
                   <TD style={{ color: "var(--muted)" }}>{e.comment || "—"}</TD>
-                  <TD style={{ fontFamily: "JetBrains Mono, monospace", color: t.color }}>
+                  <TD
+                    style={{
+                      fontFamily: "JetBrains Mono, monospace",
+                      color: t.color,
+                    }}
+                  >
                     {t.sign}
                     {fmtM(e.amount)}
                   </TD>
@@ -603,7 +688,11 @@ export default function SupplierDetailPage({
                       <IconBtn title="Изменить" onClick={() => openEdit(e)}>
                         ✏️
                       </IconBtn>
-                      <IconBtn title="Удалить" color="var(--red)" onClick={() => remove(e)}>
+                      <IconBtn
+                        title="Удалить"
+                        color="var(--red)"
+                        onClick={() => remove(e)}
+                      >
                         🗑
                       </IconBtn>
                     </div>
@@ -624,7 +713,11 @@ export default function SupplierDetailPage({
         subtitle={supplier}
         footer={
           <>
-            <Btn variant="ghost" onClick={() => setModal(null)} disabled={saving}>
+            <Btn
+              variant="ghost"
+              onClick={() => setModal(null)}
+              disabled={saving}
+            >
               Отмена
             </Btn>
             <Btn variant="green" onClick={save} loading={saving}>
@@ -665,7 +758,13 @@ export default function SupplierDetailPage({
                     onChange={(e) => setEditField({ kg: e.target.value })}
                   />
                   {Number(form.kg) > 0 && parseQtyExpr(form.quantity) > 0 && (
-                    <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 3 }}>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: "var(--muted)",
+                        marginTop: 3,
+                      }}
+                    >
                       = {fmt(parseQtyExpr(form.quantity) * Number(form.kg))} кг
                     </div>
                   )}
@@ -692,7 +791,10 @@ export default function SupplierDetailPage({
               </div>
             </div>
             <Field label="Дата">
-              <DateField value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
+              <DateField
+                value={form.date}
+                onChange={(v) => setForm({ ...form, date: v })}
+              />
             </Field>
             <Field label="Комментарий">
               <TextInput
@@ -719,7 +821,14 @@ export default function SupplierDetailPage({
               Что привезли
             </div>
 
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 6,
+                marginBottom: 12,
+              }}
+            >
               <button
                 type="button"
                 onClick={addPurchaseItem}
@@ -793,7 +902,13 @@ export default function SupplierDetailPage({
             </datalist>
 
             {purchaseItems.length === 0 && (
-              <div style={{ fontSize: 12.5, color: "var(--muted)", padding: "10px 2px" }}>
+              <div
+                style={{
+                  fontSize: 12.5,
+                  color: "var(--muted)",
+                  padding: "10px 2px",
+                }}
+              >
                 Нажмите на товар выше, чтобы добавить строку.
               </div>
             )}
@@ -809,14 +924,23 @@ export default function SupplierDetailPage({
                   marginBottom: 8,
                 }}
               >
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    flexWrap: "wrap",
+                    alignItems: "flex-end",
+                  }}
+                >
                   <div style={{ flex: 2, minWidth: 140 }}>
                     <Field label={i === 0 ? "Товар" : null}>
                       <TextInput
                         list="rawMaterialsListSupplier"
                         placeholder="Например: Мука Даяш"
                         value={it.product}
-                        onChange={(e) => setPurchaseItem(it.key, { product: e.target.value })}
+                        onChange={(e) =>
+                          setPurchaseItem(it.key, { product: e.target.value })
+                        }
                       />
                     </Field>
                   </div>
@@ -825,13 +949,22 @@ export default function SupplierDetailPage({
                       <TextInput
                         placeholder="100х50"
                         value={it.quantity}
-                        onChange={(e) => setPurchaseItem(it.key, { quantity: e.target.value })}
+                        onChange={(e) =>
+                          setPurchaseItem(it.key, { quantity: e.target.value })
+                        }
                       />
-                      {/[x×хX*]/.test(it.quantity) && parseQtyExpr(it.quantity) > 0 && (
-                        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 3 }}>
-                          = {parseQtyExpr(it.quantity)}
-                        </div>
-                      )}
+                      {/[x×хX*]/.test(it.quantity) &&
+                        parseQtyExpr(it.quantity) > 0 && (
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: "var(--muted)",
+                              marginTop: 3,
+                            }}
+                          >
+                            = {parseQtyExpr(it.quantity)}
+                          </div>
+                        )}
                     </Field>
                   </div>
                   <div style={{ width: 74 }}>
@@ -840,10 +973,18 @@ export default function SupplierDetailPage({
                         inputMode="decimal"
                         placeholder="50"
                         value={it.kg}
-                        onChange={(e) => setPurchaseItem(it.key, { kg: e.target.value })}
+                        onChange={(e) =>
+                          setPurchaseItem(it.key, { kg: e.target.value })
+                        }
                       />
                       {Number(it.kg) > 0 && parseQtyExpr(it.quantity) > 0 && (
-                        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 3 }}>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: "var(--muted)",
+                            marginTop: 3,
+                          }}
+                        >
                           = {fmt(parseQtyExpr(it.quantity) * Number(it.kg))} кг
                         </div>
                       )}
@@ -855,7 +996,9 @@ export default function SupplierDetailPage({
                         inputMode="decimal"
                         placeholder="0"
                         value={it.price}
-                        onChange={(e) => setPurchaseItem(it.key, { price: e.target.value })}
+                        onChange={(e) =>
+                          setPurchaseItem(it.key, { price: e.target.value })
+                        }
                       />
                     </Field>
                   </div>
@@ -865,7 +1008,9 @@ export default function SupplierDetailPage({
                         inputMode="decimal"
                         placeholder="0"
                         value={it.sum}
-                        onChange={(e) => setPurchaseItem(it.key, { sum: e.target.value })}
+                        onChange={(e) =>
+                          setPurchaseItem(it.key, { sum: e.target.value })
+                        }
                       />
                     </Field>
                   </div>
@@ -881,16 +1026,29 @@ export default function SupplierDetailPage({
                 <TextInput
                   placeholder="Комментарий к товару (необязательно)..."
                   value={it.comment}
-                  onChange={(e) => setPurchaseItem(it.key, { comment: e.target.value })}
+                  onChange={(e) =>
+                    setPurchaseItem(it.key, { comment: e.target.value })
+                  }
                   style={{ marginTop: 6, fontSize: 12.5 }}
                 />
               </div>
             ))}
 
             {purchaseTotal > 0 && (
-              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12, fontSize: 13 }}>
-                <span style={{ color: "var(--muted)", marginRight: 8 }}>Итого поступление:</span>
-                <b style={{ fontFamily: "JetBrains Mono, monospace" }}>{fmtM(purchaseTotal)}</b>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  marginTop: 12,
+                  fontSize: 13,
+                }}
+              >
+                <span style={{ color: "var(--muted)", marginRight: 8 }}>
+                  Итого поступление:
+                </span>
+                <b style={{ fontFamily: "JetBrains Mono, monospace" }}>
+                  {fmtM(purchaseTotal)}
+                </b>
               </div>
             )}
           </>
@@ -905,7 +1063,11 @@ export default function SupplierDetailPage({
         subtitle={supplier}
         footer={
           <>
-            <Btn variant="ghost" onClick={() => setModal(null)} disabled={saving}>
+            <Btn
+              variant="ghost"
+              onClick={() => setModal(null)}
+              disabled={saving}
+            >
               Отмена
             </Btn>
             <Btn variant="warn" onClick={save} loading={saving}>
@@ -915,7 +1077,10 @@ export default function SupplierDetailPage({
         }
       >
         <Field label="Дата">
-          <DateField value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
+          <DateField
+            value={form.date}
+            onChange={(v) => setForm({ ...form, date: v })}
+          />
         </Field>
         <Field label="Сумма, сом">
           <TextInput
@@ -941,7 +1106,11 @@ export default function SupplierDetailPage({
         subtitle="Клиент платит поставщику вместо нас"
         footer={
           <>
-            <Btn variant="ghost" onClick={() => setModal(null)} disabled={saving}>
+            <Btn
+              variant="ghost"
+              onClick={() => setModal(null)}
+              disabled={saving}
+            >
               Отмена
             </Btn>
             <Btn variant="purple" onClick={save} loading={saving}>
@@ -961,7 +1130,11 @@ export default function SupplierDetailPage({
                 setForm({
                   ...form,
                   client: v,
-                  amount: String(Math.round(Math.min(Number(c?.debt || 0), Math.max(debt, 0)))),
+                  amount: String(
+                    Math.round(
+                      Math.min(Number(c?.debt || 0), Math.max(debt, 0)),
+                    ),
+                  ),
                 });
               }}
               options={clientDebtors.map((c) => ({
@@ -973,7 +1146,10 @@ export default function SupplierDetailPage({
           )}
         </Field>
         <Field label="Дата">
-          <DateField value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
+          <DateField
+            value={form.date}
+            onChange={(v) => setForm({ ...form, date: v })}
+          />
         </Field>
         <Field label="Сумма, сом">
           <TextInput

@@ -18,12 +18,7 @@ export const S = {
   },
   logo: {
     padding: "20px 18px 16px",
-    fontSize: 13,
-    fontWeight: 700,
-    letterSpacing: ".1em",
-    textTransform: "uppercase",
-    color: "var(--accent)",
-    borderBottom: "1px solid var(--b1)",
+    textAlign: "center",
   },
   logoCollapsed: {
     padding: "18px 0",
@@ -54,7 +49,12 @@ export const S = {
     zIndex: 20,
   },
   content: { padding: "20px 24px", overflowY: "auto", flex: 1 },
-  contentMobile: { padding: "16px 12px", overflowY: "auto", flex: 1, paddingBottom: 80 },
+  contentMobile: {
+    padding: "16px 12px",
+    overflowY: "auto",
+    flex: 1,
+    paddingBottom: 80,
+  },
   card: {
     background: "var(--s1)",
     border: "1px solid var(--b1)",

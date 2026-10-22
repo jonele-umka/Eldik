@@ -302,10 +302,10 @@ export default function FinancePage({
 
   // Клиенты со скидкой 3%: периоды с 16-го по 15-е, по каждому периоду —
   // сколько заказано, сумма после скидки и сколько оплачено.
-  const kPeriodKey = (t) => {
+  const kPeriodKey = (t, startDay) => {
     let y = t.yy,
       m = t.mm;
-    if (t.dd < 16) {
+    if (t.dd < startDay) {
       m -= 1;
       if (m === 0) {
         m = 12;
@@ -314,16 +314,24 @@ export default function FinancePage({
     }
     return `${y}-${String(m).padStart(2, "0")}`;
   };
-  const kLabel = (key) => {
+  const kLabel = (key, startDay) => {
     const [y, m] = key.split("-").map(Number);
     const ny = m === 12 ? y + 1 : y;
     const nm = m === 12 ? 1 : m + 1;
-    return `16 ${MS[m - 1]} ${y} – 15 ${MS[nm - 1]} ${ny}`;
+    return `${startDay} ${MS[m - 1]} ${y} – ${startDay - 1} ${MS[nm - 1]} ${ny}`;
   };
   const discountClients = [
-    { match: "кубаныч", title: "Кубаныч ДФ" },
-    { match: "элдияр", title: "Элдияр ДФ" },
-  ].map(({ match, title }) => {
+    { match: "кубаныч", title: "Кубаныч ДФ", discount: DISCOUNT, startDay: 16 },
+    { match: "элдияр", title: "Элдияр ДФ", discount: DISCOUNT, startDay: 16 },
+    // Бартер: «оплачено» — это приходы товаров от Украины (считаются как оплата)
+    {
+      match: "украина",
+      title: "Украина ДФ — оплата товарами (бартер)",
+      discount: 0,
+      startDay: 15,
+      barter: true,
+    },
+  ].map(({ match, title, discount, startDay, barter }) => {
     const periods = {};
     const row = (k) => periods[k] || (periods[k] = { orders: 0, paid: 0 });
     let realName = "";
@@ -332,13 +340,13 @@ export default function FinancePage({
       const t = parseDay(g.deliveryDate || g.orderDate);
       if (!t) return;
       if (!realName) realName = g.client;
-      row(kPeriodKey(t)).orders += g.effective;
+      row(kPeriodKey(t, startDay)).orders += g.effective;
     });
     (Array.isArray(payments) ? payments : []).forEach((p) => {
       if (!normClient(p.client).includes(match)) return;
       const t = parseDay(p.paymentDate);
       if (!t) return;
-      row(kPeriodKey(t)).paid += Number(p.amount || 0);
+      row(kPeriodKey(t, startDay)).paid += Number(p.amount || 0);
     });
     const keys = Object.keys(periods).sort().reverse();
     const orders_ = keys.reduce((a, k) => a + periods[k].orders, 0);
@@ -349,6 +357,9 @@ export default function FinancePage({
       keys,
       orders: orders_,
       paid,
+      discount,
+      startDay,
+      barter,
       realName: realName || title,
     };
   });
@@ -488,7 +499,7 @@ export default function FinancePage({
           icon="👥"
           color="var(--accent)"
           title="ДЕНЬГИ КЛИЕНТОВ"
-          subtitle="Сколько заказали за период с 16-го по 15-е и сколько получается после скидки 3% — нажми на имя, чтобы открыть заказы"
+          subtitle="Сколько заказали по периодам, сколько оплачено и что осталось — нажми на имя, чтобы открыть заказы"
         />
       )}
       {discountClients.map((dc) =>
@@ -535,22 +546,48 @@ export default function FinancePage({
               >
                 <thead>
                   <tr style={{ background: "var(--s2)" }}>
-                    {["Период", "Заказано", "После скидки 3%", "Оплачено"].map(
-                      (h) => (
-                        <TH key={h}>{h}</TH>
-                      ),
-                    )}
+                    {[
+                      "Период",
+                      "Заказано",
+                      ...(dc.discount ? ["После скидки 3%"] : []),
+                      dc.barter ? "Оплачено товарами" : "Оплачено",
+                      "Остаток",
+                    ].map((h) => (
+                      <TH key={h}>{h}</TH>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {dc.keys.map((k) => {
                     const r = dc.periods[k];
+                    const due = r.orders * (1 - dc.discount);
+                    const diff = due - r.paid;
                     return (
                       <TR key={k}>
-                        <TD>{kLabel(k)}</TD>
+                        <TD>{kLabel(k, dc.startDay)}</TD>
                         <TD>{fmtM(r.orders)}</TD>
-                        <TD>{fmtM(r.orders * (1 - DISCOUNT))}</TD>
+                        {dc.discount ? <TD>{fmtM(due)}</TD> : null}
                         <TD>{fmtM(r.paid)}</TD>
+                        <TD>
+                          <span
+                            style={{
+                              color:
+                                diff > 0
+                                  ? "var(--red)"
+                                  : diff < 0
+                                    ? "var(--green)"
+                                    : "inherit",
+                              fontWeight: 600,
+                            }}
+                          >
+                            {diff > 0
+                              ? "должен "
+                              : diff < 0
+                                ? "переплата "
+                                : ""}
+                            {fmtM(Math.abs(diff))}
+                          </span>
+                        </TD>
                       </TR>
                     );
                   })}
@@ -561,22 +598,25 @@ export default function FinancePage({
                     <TD>
                       <b>{fmtM(dc.orders)}</b>
                     </TD>
-                    <TD>
-                      <b>{fmtM(dc.orders * (1 - DISCOUNT))}</b>
-                    </TD>
+                    {dc.discount ? (
+                      <TD>
+                        <b>{fmtM(dc.orders * (1 - dc.discount))}</b>
+                      </TD>
+                    ) : null}
                     <TD>
                       <b>{fmtM(dc.paid)}</b>
                     </TD>
-                  </TR>
-                  <TR>
                     <TD>
-                      <b>Долг по заказам (после скидки − оплачено)</b>
+                      <b>
+                        {(() => {
+                          const d = dc.orders * (1 - dc.discount) - dc.paid;
+                          return (
+                            (d > 0 ? "должен " : d < 0 ? "переплата " : "") +
+                            fmtM(Math.abs(d))
+                          );
+                        })()}
+                      </b>
                     </TD>
-                    <TD></TD>
-                    <TD>
-                      <b>{fmtM(dc.orders * (1 - DISCOUNT) - dc.paid)}</b>
-                    </TD>
-                    <TD></TD>
                   </TR>
                 </tbody>
               </table>
@@ -587,6 +627,8 @@ export default function FinancePage({
               Период — по дате доставки. Сумма заказа — как «К оплате» в
               карточке: за вычетом возвратов, «нет в наличии» и «не
               поместилось». Начальный остаток не учитывается.
+              {dc.barter &&
+                " Оплата — приходы товаров от Украины по дате прихода; если привезли больше, чем заказали, или наоборот, разница видна в колонке «Остаток»."}
             </div>
           </div>
         ),
