@@ -252,7 +252,7 @@ export default function FinancePage({
         amanMonth += amount;
       return;
     }
-    if (c !== "украина" && normClient(p.market) !== "дордой-фуд") return;
+    if (!c.includes("украина") && normClient(p.market) !== "дордой-фуд") return;
     const t = parseDay(p.paymentDate);
     if (!t) return;
     const key = periodKeyOf(t);
