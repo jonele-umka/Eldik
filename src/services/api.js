@@ -40,6 +40,14 @@ export async function apiPost(body) {
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify(body),
   });
+  // Google Apps Script отвечает на POST редиректом на служебный адрес с
+  // результатом. Иногда этот второй шаг отдаёт 404 уже ПОСЛЕ того, как
+  // скрипт выполнил действие (создал/удалил) — теряется только ответ.
+  // Если показать это как ошибку, выглядит так, будто не сохранилось, хотя
+  // сохранилось. Поэтому 404 на POST считаем "ответ не получен, но запрос
+  // ушёл": возвращаем uncertain, а mutate() сразу перечитывает данные и
+  // на экране остаётся то, что реально есть в таблице.
+  if (res.status === 404) return { success: true, uncertain: true };
   if (!res.ok) throw new Error("HTTP " + res.status);
   const data = await res.json();
   if (data && data.success === false) {
