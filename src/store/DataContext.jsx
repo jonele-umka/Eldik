@@ -18,7 +18,6 @@ import { apiGet, setApiUrl } from "../services/api.js";
 
 const CACHE_KEY = "app_data_cache_v2";
 const CACHE_TIME_KEY = "app_data_cache_time_v2";
-const CACHE_MAX_AGE = 1000 * 60 * 60; // старше часа — не показываем (иначе "заказов нет")
 const CACHE_TTL = 1000 * 60 * 5; // 5 минут — потом тихо обновляем в фоне
 
 // Автообновление заказов, чтобы не приходилось жать "Обновить" самому.
@@ -202,7 +201,7 @@ export function DataProvider({ apiUrl, children }) {
     try {
       const raw = localStorage.getItem(CACHE_KEY);
       const ts = Number(localStorage.getItem(CACHE_TIME_KEY) || 0);
-      if (raw && ts && Date.now() - ts < CACHE_MAX_AGE) {
+      if (raw && ts) {
         const cached = JSON.parse(raw);
         dataRef.current = cached;
         setData(cached);
@@ -250,7 +249,7 @@ export function DataProvider({ apiUrl, children }) {
     if (!apiUrl) return;
     const id = setInterval(() => {
       if (document.visibilityState === "visible")
-        refresh(["orders", "production", "deliveryDetail"], { silent: true });
+        refresh(["orders"], { silent: true });
     }, ORDERS_POLL_MS);
     return () => clearInterval(id);
   }, [apiUrl, refresh]);
