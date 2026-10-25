@@ -18,6 +18,7 @@ import { apiGet, setApiUrl } from "../services/api.js";
 
 const CACHE_KEY = "app_data_cache_v2";
 const CACHE_TIME_KEY = "app_data_cache_time_v2";
+const CACHE_MAX_AGE = 1000 * 60 * 60; // старше часа — не показываем (иначе "заказов нет")
 const CACHE_TTL = 1000 * 60 * 5; // 5 минут — потом тихо обновляем в фоне
 
 // Автообновление заказов, чтобы не приходилось жать "Обновить" самому.
@@ -52,6 +53,16 @@ export const ENDPOINTS = {
 };
 
 const ALL_KEYS = Object.keys(ENDPOINTS);
+// Лёгкие таблицы для производства и развозки — грузим первыми, чтобы эти
+// страницы открывались сразу, не дожидаясь тяжёлых отчётов (долги, финансы).
+const FIRST_KEYS = [
+  "production",
+  "deliveryDetail",
+  "prices",
+  "orders",
+  "clients",
+];
+const REST_KEYS = ALL_KEYS.filter((k) => !FIRST_KEYS.includes(k));
 
 // Apps Script ограничивает число ОДНОВРЕМЕННЫХ запросов к одному скрипту, а
 // тяжёлые отчёты (должники, аналитика, финансы) считаются долго. Если
@@ -161,13 +172,25 @@ export function DataProvider({ apiUrl, children }) {
   // не крутим общий индикатор загрузки, чтобы не мигало само по себе
   // каждые 30 секунд, пока человек просто держит вкладку открытой.
   const refresh = useCallback(
-    async (keys = ALL_KEYS, { silent = false, fresh = false } = {}) => {
+    async (
+      keys = ALL_KEYS,
+      { silent = false, fresh = false, spin = false } = {},
+    ) => {
       if (!apiUrl) return;
-      const list = keys.filter((k) => ENDPOINTS[k]);
+      const list = keys
+        .filter((k) => ENDPOINTS[k])
+        .sort((a, b) => {
+          const ia = FIRST_KEYS.indexOf(a);
+          const ib = FIRST_KEYS.indexOf(b);
+          return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+        });
       if (!list.length) return;
 
       if (!silent) {
         setBusyKeys((p) => [...new Set([...p, ...list])]);
+        setLoading(true);
+      } else if (spin) {
+        // тихое автообновление: крутим только значок «Обновить», без блокировки
         setLoading(true);
       }
 
@@ -187,6 +210,8 @@ export function DataProvider({ apiUrl, children }) {
       if (!silent) {
         setBusyKeys((p) => p.filter((k) => !list.includes(k)));
         setLoading(false);
+      } else if (spin) {
+        setLoading(false);
       }
       setUpdatedAt(timeLabel(Date.now()));
       setReady(true);
@@ -201,7 +226,7 @@ export function DataProvider({ apiUrl, children }) {
     try {
       const raw = localStorage.getItem(CACHE_KEY);
       const ts = Number(localStorage.getItem(CACHE_TIME_KEY) || 0);
-      if (raw && ts) {
+      if (raw && ts && Date.now() - ts < CACHE_MAX_AGE) {
         const cached = JSON.parse(raw);
         dataRef.current = cached;
         setData(cached);
@@ -215,8 +240,11 @@ export function DataProvider({ apiUrl, children }) {
         }
       }
     } catch (_) {}
-    await refresh(ALL_KEYS);
+    // Сначала лёгкое (производство, развозка, заказы) — экран открывается
+    // сразу, а тяжёлые отчёты догружаются в фоне.
+    await refresh(FIRST_KEYS);
     if (!hadCache) setReady(true);
+    refresh(REST_KEYS, { silent: true });
   }, [apiUrl, refresh]);
 
   // Когда возвращаются на вкладку (сворачивали окно, переключались на
@@ -249,7 +277,10 @@ export function DataProvider({ apiUrl, children }) {
     if (!apiUrl) return;
     const id = setInterval(() => {
       if (document.visibilityState === "visible")
-        refresh(["orders"], { silent: true });
+        refresh(["orders", "production", "deliveryDetail"], {
+          silent: true,
+          spin: true,
+        });
     }, ORDERS_POLL_MS);
     return () => clearInterval(id);
   }, [apiUrl, refresh]);
@@ -291,7 +322,13 @@ export function DataProvider({ apiUrl, children }) {
         if (keys.length) {
           // silent, чтобы не включать общий индикатор загрузки — экран уже
           // показывает нужный результат оптимистично (если он был).
-          await refresh(keys, { silent: !!optimisticPatch, fresh: true });
+          // Ждём только главное (первая таблица и заказы) — этого хватает,
+          // чтобы форма закрылась и экран показал результат. Тяжёлые отчёты
+          // (долги, финансы, аналитика) подтягиваем сразу следом в фоне.
+          const first = keys.filter((k, i) => i === 0 || k === "orders");
+          const rest = keys.filter((k) => !first.includes(k));
+          await refresh(first, { silent: !!optimisticPatch, fresh: true });
+          if (rest.length) refresh(rest, { silent: true, fresh: true });
         }
         return res;
       } catch (err) {

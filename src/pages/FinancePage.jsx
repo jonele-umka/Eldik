@@ -300,7 +300,7 @@ export default function FinancePage({
   const curVolume = volumePeriods[curKey] || 0;
   const akylbekNetProfit = allBalance - urmatTotal - amanCut;
 
-  // Клиенты со скидкой 3%: периоды с 16-го по 15-е, по каждому периоду —
+  // Клиенты со скидкой 3%: периоды с 16-го по 16-е включительно, по каждому периоду —
   // сколько заказано, сумма после скидки и сколько оплачено.
   const kPeriodKey = (t, startDay) => {
     let y = t.yy,
@@ -314,55 +314,95 @@ export default function FinancePage({
     }
     return `${y}-${String(m).padStart(2, "0")}`;
   };
-  const kLabel = (key, startDay) => {
+  const kLabel = (key, startDay, endDay) => {
     const [y, m] = key.split("-").map(Number);
     const ny = m === 12 ? y + 1 : y;
     const nm = m === 12 ? 1 : m + 1;
-    return `${startDay} ${MS[m - 1]} ${y} – ${startDay - 1} ${MS[nm - 1]} ${ny}`;
+    return `${startDay} ${MS[m - 1]} ${y} – ${endDay} ${MS[nm - 1]} ${ny}`;
+  };
+  // Периоды, в которые попадает день. Если overlap — день границы (16-е)
+  // входит и в закрывающийся, и в начинающийся период (16 по 16 включительно).
+  const kPeriodKeys = (t, startDay, overlap) => {
+    const ks = [kPeriodKey(t, startDay)];
+    // 16-е входит и в предыдущий период, но не раньше первого (с 16 сентября)
+    if (overlap && t.dd === startDay && !(t.yy === 2026 && t.mm === 9))
+      ks.push(kPeriodKey({ ...t, dd: startDay - 1 }, startDay));
+    return ks;
   };
   const discountClients = [
-    { match: "кубаныч", title: "Кубаныч ДФ", discount: DISCOUNT, startDay: 16 },
-    { match: "элдияр", title: "Элдияр ДФ", discount: DISCOUNT, startDay: 16 },
+    {
+      match: "кубаныч",
+      title: "Кубаныч ДФ",
+      discount: DISCOUNT,
+      startDay: 16,
+      endDay: 16,
+      overlap: true,
+      since: 20260916,
+    },
+    {
+      match: "элдияр",
+      title: "Элдияр ДФ",
+      discount: DISCOUNT,
+      startDay: 16,
+      endDay: 16,
+      overlap: true,
+      since: 20260916,
+    },
     // Бартер: «оплачено» — это приходы товаров от Украины (считаются как оплата)
     {
       match: "украина",
       title: "Украина ДФ — оплата товарами (бартер)",
       discount: 0,
       startDay: 15,
+      endDay: 14,
       barter: true,
     },
-  ].map(({ match, title, discount, startDay, barter }) => {
-    const periods = {};
-    const row = (k) => periods[k] || (periods[k] = { orders: 0, paid: 0 });
-    let realName = "";
-    orderGroups.forEach((g) => {
-      if (!normClient(g.client).includes(match)) return;
-      const t = parseDay(g.deliveryDate || g.orderDate);
-      if (!t) return;
-      if (!realName) realName = g.client;
-      row(kPeriodKey(t, startDay)).orders += g.effective;
-    });
-    (Array.isArray(payments) ? payments : []).forEach((p) => {
-      if (!normClient(p.client).includes(match)) return;
-      const t = parseDay(p.paymentDate);
-      if (!t) return;
-      row(kPeriodKey(t, startDay)).paid += Number(p.amount || 0);
-    });
-    const keys = Object.keys(periods).sort().reverse();
-    const orders_ = keys.reduce((a, k) => a + periods[k].orders, 0);
-    const paid = keys.reduce((a, k) => a + periods[k].paid, 0);
-    return {
-      title,
-      periods,
-      keys,
-      orders: orders_,
-      paid,
-      discount,
-      startDay,
-      barter,
-      realName: realName || title,
-    };
-  });
+  ].map(
+    ({ match, title, discount, startDay, endDay, overlap, since, barter }) => {
+      const periods = {};
+      const row = (k) => periods[k] || (periods[k] = { orders: 0, paid: 0 });
+      let realName = "";
+      let totOrders = 0;
+      let totPaid = 0;
+      orderGroups.forEach((g) => {
+        if (!normClient(g.client).includes(match)) return;
+        const t = parseDay(g.deliveryDate || g.orderDate);
+        if (!t) return;
+        if (since && t.yy * 10000 + t.mm * 100 + t.dd < since) return;
+        if (!realName) realName = g.client;
+        totOrders += g.effective;
+        kPeriodKeys(t, startDay, overlap).forEach((k) => {
+          row(k).orders += g.effective;
+        });
+      });
+      (Array.isArray(payments) ? payments : []).forEach((p) => {
+        if (!normClient(p.client).includes(match)) return;
+        const t = parseDay(p.paymentDate);
+        if (!t) return;
+        if (since && t.yy * 10000 + t.mm * 100 + t.dd < since) return;
+        totPaid += Number(p.amount || 0);
+        kPeriodKeys(t, startDay, overlap).forEach((k) => {
+          row(k).paid += Number(p.amount || 0);
+        });
+      });
+      const keys = Object.keys(periods).sort().reverse();
+      const orders_ = totOrders;
+      const paid = totPaid;
+      return {
+        title,
+        periods,
+        keys,
+        orders: orders_,
+        paid,
+        discount,
+        startDay,
+        endDay,
+        overlap,
+        barter,
+        realName: realName || title,
+      };
+    },
+  );
 
   const sectionStyle = { ...S.card, marginBottom: 20 };
   const sectionHeader = {
@@ -564,7 +604,7 @@ export default function FinancePage({
                     const diff = due - r.paid;
                     return (
                       <TR key={k}>
-                        <TD>{kLabel(k, dc.startDay)}</TD>
+                        <TD>{kLabel(k, dc.startDay, dc.endDay)}</TD>
                         <TD>{fmtM(r.orders)}</TD>
                         {dc.discount ? <TD>{fmtM(due)}</TD> : null}
                         <TD>{fmtM(r.paid)}</TD>
@@ -624,9 +664,12 @@ export default function FinancePage({
             <div
               style={{ fontSize: 11.5, color: "var(--muted2)", marginTop: 10 }}
             >
-              Период — по дате доставки. Сумма заказа — как «К оплате» в
-              карточке: за вычетом возвратов, «нет в наличии» и «не
-              поместилось». Начальный остаток не учитывается.
+              Период — по дате доставки.
+              {dc.overlap &&
+                " Для этого клиента период с 16-го по 16-е включительно: заказы и оплаты за 16-е входят в оба соседних периода, а в строке «Всего» считаются один раз."}{" "}
+              Сумма заказа — как «К оплате» в карточке: за вычетом возвратов,
+              «нет в наличии» и «не поместилось». Начальный остаток не
+              учитывается.
               {dc.barter &&
                 " Оплата — приходы товаров от Украины по дате прихода; если привезли больше, чем заказали, или наоборот, разница видна в колонке «Остаток»."}
             </div>
