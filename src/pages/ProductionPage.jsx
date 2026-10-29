@@ -59,7 +59,7 @@ function getDateStatus(dateStr) {
   };
 }
 
-function MarketChips({ markets }) {
+function MarketChips({ markets, big }) {
   const entries = Object.entries(markets || {});
   if (entries.length === 0) {
     return <span style={{ color: "var(--muted)", fontSize: 12 }}>—</span>;
@@ -73,9 +73,9 @@ function MarketChips({ markets }) {
             display: "inline-flex",
             alignItems: "center",
             gap: 4,
-            padding: "2px 8px",
+            padding: big ? "4px 11px" : "2px 8px",
             borderRadius: 20,
-            fontSize: 11,
+            fontSize: big ? 13 : 11,
             background: "rgba(88,166,255,.12)",
             color: "var(--accent)",
             whiteSpace: "nowrap",
@@ -138,15 +138,16 @@ function NotFitBadge({ qty, small }) {
 // Общее количество за вычетом недостачи и "не поместилось" — чтобы сразу
 // было видно, сколько реально есть/увезли, без путаницы с изначальным
 // "всего заказано".
-function TotalWithMissing({ total, missingQty, notFitQty = 0 }) {
+function TotalWithMissing({ total, missingQty, notFitQty = 0, big }) {
+  const fs = big ? 22 : 14;
   const deducted = (missingQty || 0) + (notFitQty || 0);
   if (!deducted) {
     return (
       <span
         style={{
           fontFamily: "JetBrains Mono,monospace",
-          fontSize: 14,
-          fontWeight: 700,
+          fontSize: fs,
+          fontWeight: 800,
           color: "var(--accent)",
         }}
       >
@@ -168,8 +169,8 @@ function TotalWithMissing({ total, missingQty, notFitQty = 0 }) {
         <span
           style={{
             fontFamily: "JetBrains Mono,monospace",
-            fontSize: 14,
-            fontWeight: 700,
+            fontSize: fs,
+            fontWeight: 800,
             color,
           }}
         >
@@ -203,7 +204,7 @@ function TotalWithMissing({ total, missingQty, notFitQty = 0 }) {
 // лишних кликов. Привязан к КОНКРЕТНОМУ заказу (orderId), а не к дате —
 // иначе отметка у одного клиента задевала бы заказы других клиентов с тем
 // же товаром на ту же дату доставки.
-function StockOutEditor({ orderId, product, missingQty, busy, onSave }) {
+function StockOutEditor({ orderId, product, missingQty, busy, onSave, big }) {
   const [val, setVal] = useState(String(missingQty || ""));
   useEffect(() => setVal(String(missingQty || "")), [missingQty]);
 
@@ -223,19 +224,19 @@ function StockOutEditor({ orderId, product, missingQty, busy, onSave }) {
         onKeyDown={(e) => e.key === "Enter" && save()}
         placeholder="0"
         style={{
-          width: 56,
+          width: big ? 76 : 56,
           textAlign: "center",
           background: "var(--s1)",
           border: "1px solid var(--b1)",
-          borderRadius: 7,
+          borderRadius: big ? 10 : 7,
           color: "var(--text)",
-          padding: "5px 4px",
+          padding: big ? "11px 4px" : "5px 4px",
           fontFamily: "JetBrains Mono, monospace",
-          fontSize: 13,
+          fontSize: big ? 17 : 13,
         }}
       />
       <Btn
-        size="sm"
+        size={big ? undefined : "sm"}
         variant={missingQty > 0 ? "danger" : "ghost"}
         loading={busy}
         onClick={save}
@@ -249,7 +250,7 @@ function StockOutEditor({ orderId, product, missingQty, busy, onSave }) {
 // То же самое, но для отметки "не поместилось" — отдельный ключ в сторе
 // ("notFits"), независимый от "не хватает", чтобы не портить его логику.
 // Тоже привязан к конкретному заказу (orderId).
-function NotFitEditor({ orderId, product, notFitQty, busy, onSave }) {
+function NotFitEditor({ orderId, product, notFitQty, busy, onSave, big }) {
   const [val, setVal] = useState(String(notFitQty || ""));
   useEffect(() => setVal(String(notFitQty || "")), [notFitQty]);
 
@@ -269,19 +270,19 @@ function NotFitEditor({ orderId, product, notFitQty, busy, onSave }) {
         onKeyDown={(e) => e.key === "Enter" && save()}
         placeholder="0"
         style={{
-          width: 56,
+          width: big ? 76 : 56,
           textAlign: "center",
           background: "var(--s1)",
           border: "1px solid var(--b1)",
-          borderRadius: 7,
+          borderRadius: big ? 10 : 7,
           color: "var(--text)",
-          padding: "5px 4px",
+          padding: big ? "11px 4px" : "5px 4px",
           fontFamily: "JetBrains Mono, monospace",
-          fontSize: 13,
+          fontSize: big ? 17 : 13,
         }}
       />
       <Btn
-        size="sm"
+        size={big ? undefined : "sm"}
         variant={notFitQty > 0 ? "purple" : "ghost"}
         loading={busy}
         onClick={save}
@@ -735,7 +736,7 @@ function ProductionView({
                             background: isOpen ? `${color}14` : "transparent",
                           }}
                         >
-                          <ProductThumb src={priceMap[r.product]} />
+                          <ProductThumb src={priceMap[r.product]} size={56} />
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div
                               style={{
@@ -745,25 +746,26 @@ function ProductionView({
                                 gap: 8,
                               }}
                             >
-                              <b style={{ fontSize: 13 }}>
+                              <b style={{ fontSize: 15.5, lineHeight: 1.25 }}>
                                 <span style={{ color }}>
                                   {isOpen ? "🧾▾" : "🧾▸"}
                                 </span>{" "}
                                 {r.product}
                               </b>
                               <TotalWithMissing
+                                big
                                 total={r.total}
                                 missingQty={missingQty}
                                 notFitQty={notFitQty}
                               />
                             </div>
-                            <div style={{ marginTop: 6 }}>
-                              <MarketChips markets={r.markets} />
+                            <div style={{ marginTop: 8 }}>
+                              <MarketChips big markets={r.markets} />
                             </div>
                             {r.comment && (
                               <div
                                 style={{
-                                  fontSize: 12,
+                                  fontSize: 13.5,
                                   color: "var(--muted)",
                                   marginTop: 6,
                                 }}
@@ -960,6 +962,16 @@ function DeliveryView({
 }) {
   const [dateFilter, setDateFilter] = useState("");
   const [marketFilter, setMarketFilter] = useState("");
+  // Какие отметки («не хватает» / «не поместилось») раскрыты — по умолчанию
+  // скрыты, чтобы на экране были только товар, количество и цена.
+  const [openMarks, setOpenMarks] = useState(() => new Set());
+  const toggleMarks = (k) =>
+    setOpenMarks((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
 
   const imageByProduct = useMemo(() => {
     const m = {};
@@ -1091,168 +1103,254 @@ function DeliveryView({
                   gap: 12,
                 }}
               >
-                <span style={{ fontSize: 14, fontWeight: 700 }}>📅 {date}</span>
-                <span style={{ fontSize: 12, color: "var(--muted)" }}>
+                <span style={{ fontSize: isMobile ? 17 : 14, fontWeight: 800 }}>
+                  📅 {date}
+                </span>
+                <span
+                  style={{
+                    fontSize: isMobile ? 13.5 : 12,
+                    color: "var(--muted)",
+                  }}
+                >
                   {rows.length} заказ(ов)
                 </span>
               </div>
               <div
-                style={{
-                  padding: 14,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 10,
-                }}
+                style={
+                  isMobile
+                    ? {
+                        padding: 14,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 10,
+                      }
+                    : {
+                        // на компьютере — несколько карточек в ряд, а не
+                        // одна растянутая на весь экран
+                        padding: 18,
+                        display: "grid",
+                        gridTemplateColumns:
+                          "repeat(auto-fill, minmax(380px, 1fr))",
+                        gap: 16,
+                        alignItems: "start",
+                      }
+                }
               >
                 {rows.map((r) => {
                   const delivered = r.status === "Доставлен";
+                  const busyStatus = statusBusy.has(r.oid);
+                  const orderQty = r.rows.reduce(
+                    (s, it) => s + Number(it.paidQuantity ?? it.quantity ?? 0),
+                    0,
+                  );
+                  const orderSum = r.rows.reduce(
+                    (s, it) =>
+                      s +
+                      Number(
+                        it.total ??
+                          Number(it.paidQuantity ?? it.quantity ?? 0) *
+                            Number(it.price || 0),
+                      ),
+                    0,
+                  );
                   return (
                     <div
                       key={r.oid}
                       style={{
                         background: marketColors[r.market] || "var(--s2)",
-                        border: `1px solid ${delivered ? "var(--green)" : "var(--b1)"}`,
-                        borderRadius: 10,
-                        padding: "12px 16px",
-                        opacity: delivered ? 0.75 : 1,
+                        border: `2px solid ${delivered ? "var(--green)" : "var(--b1)"}`,
+                        borderRadius: 14,
+                        boxShadow: isMobile
+                          ? "none"
+                          : "0 2px 10px rgba(0,0,0,.08)",
+                        padding: isMobile ? "14px 12px" : "16px 16px",
+                        opacity: delivered ? 0.85 : 1,
                       }}
                     >
+                      {/* Шапка: клиент, адрес, рынок */}
                       <div
                         style={{
                           display: "flex",
                           justifyContent: "space-between",
                           alignItems: "flex-start",
                           gap: 10,
-                          marginBottom: 8,
+                          marginBottom: 12,
                           flexWrap: "wrap",
                         }}
                       >
-                        <div>
-                          <div style={{ fontSize: 13.5, fontWeight: 700 }}>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div
+                            style={{
+                              fontSize: isMobile ? 18 : 16,
+                              fontWeight: 800,
+                              lineHeight: 1.2,
+                              wordBreak: "break-word",
+                            }}
+                          >
                             {r.client}
                           </div>
                           <div
-                            style={{ fontSize: 11.5, color: "var(--muted)" }}
-                          >
-                            {r.address || "Адрес не указан"}
-                          </div>
-                        </div>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                            flexWrap: "wrap",
-                          }}
-                        >
-                          <span
                             style={{
-                              fontSize: 11,
-                              fontWeight: 600,
-                              padding: "3px 10px",
-                              borderRadius: 20,
-                              background: "rgba(0,0,0,.08)",
-                              whiteSpace: "nowrap",
+                              fontSize: isMobile ? 14 : 12.5,
+                              color: "var(--muted)",
+                              marginTop: 3,
                             }}
                           >
-                            🏪 {r.market || "—"}
-                          </span>
-                          <Btn
-                            size="sm"
-                            variant={delivered ? "green" : "warn"}
-                            loading={statusBusy.has(r.oid)}
-                            onClick={() =>
-                              onToggleStatus(
-                                r.oid,
-                                delivered ? "Новый" : "Доставлен",
-                              )
-                            }
-                          >
-                            {delivered ? "✅ Доставлен" : "🚚 Новый"}
-                          </Btn>
+                            📍 {r.address || "Адрес не указан"}
+                          </div>
                         </div>
+                        <span
+                          style={{
+                            fontSize: isMobile ? 13.5 : 12,
+                            fontWeight: 700,
+                            padding: "5px 12px",
+                            borderRadius: 20,
+                            background: "rgba(0,0,0,.18)",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          🏪 {r.market || "—"}
+                        </span>
                       </div>
+
+                      {/* Товары */}
                       <div
                         style={{
                           display: "flex",
                           flexDirection: "column",
-                          gap: 8,
+                          gap: 10,
                         }}
                       >
                         {r.rows.map((it, j) => {
                           const markKey = `${r.oid}::${it.product}`;
                           const missingQty = stockOutMap.get(markKey) || 0;
                           const notFitQty = notFitMap?.get(markKey) || 0;
+                          const qty = Number(
+                            it.paidQuantity ?? it.quantity ?? 0,
+                          );
+                          const rowSum = Number(
+                            it.total ?? qty * Number(it.price || 0),
+                          );
+                          const marksOpen = openMarks.has(markKey);
+                          const hasMarks = missingQty > 0 || notFitQty > 0;
                           return (
                             <div
                               key={j}
                               style={{
-                                padding: "4px 0",
-                                borderBottom:
-                                  j < r.rows.length - 1
-                                    ? "1px solid var(--b1)"
-                                    : "none",
+                                background: "rgba(0,0,0,.14)",
+                                borderRadius: 12,
+                                padding: isMobile ? "10px" : "10px 12px",
                               }}
                             >
                               <div
                                 style={{
                                   display: "flex",
                                   alignItems: "center",
-                                  gap: 8,
-                                  flexWrap: "wrap",
+                                  gap: 12,
                                 }}
                               >
                                 <ProductThumb
                                   src={imageByProduct[it.product]}
-                                  size={26}
+                                  size={isMobile ? 64 : 48}
                                 />
-                                <span style={{ fontSize: 12.5, flex: 1 }}>
-                                  {it.product}
-                                </span>
-                                {missingQty > 0 && (
-                                  <StockOutBadge qty={missingQty} small />
-                                )}
-                                {notFitQty > 0 && (
-                                  <NotFitBadge qty={notFitQty} small />
-                                )}
-                                <span
-                                  style={{
-                                    fontFamily: "JetBrains Mono,monospace",
-                                    fontSize: 13,
-                                    fontWeight: 700,
-                                    color: "var(--accent)",
-                                  }}
-                                >
-                                  {fmt(it.paidQuantity ?? it.quantity)}
-                                </span>
-                              </div>
-                              <div
-                                style={{
-                                  marginTop: 6,
-                                  padding: "7px 9px",
-                                  background: "rgba(210,153,34,.08)",
-                                  border: "1px dashed rgba(210,153,34,.4)",
-                                  borderRadius: 8,
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    fontSize: 10.5,
-                                    color: "#d29922",
-                                    marginBottom: 6,
-                                  }}
-                                >
-                                  ✏️ Отметить по этому заказу:
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div
+                                    style={{
+                                      fontSize: isMobile ? 16.5 : 14.5,
+                                      fontWeight: 700,
+                                      lineHeight: 1.25,
+                                    }}
+                                  >
+                                    {it.product}
+                                  </div>
+                                  <div
+                                    style={{
+                                      fontSize: isMobile ? 14.5 : 12.5,
+                                      color: "var(--muted)",
+                                      marginTop: 4,
+                                    }}
+                                  >
+                                    {fmt(it.price)} с × {fmt(qty)} ={" "}
+                                    <b style={{ color: "var(--text)" }}>
+                                      {fmt(rowSum)} с
+                                    </b>
+                                  </div>
                                 </div>
+                                <div style={{ textAlign: "right" }}>
+                                  <div
+                                    style={{
+                                      fontFamily: "JetBrains Mono,monospace",
+                                      fontSize: isMobile ? 28 : 20,
+                                      fontWeight: 800,
+                                      color: "var(--accent)",
+                                      lineHeight: 1,
+                                    }}
+                                  >
+                                    {fmt(qty)}
+                                  </div>
+                                  <div
+                                    style={{
+                                      fontSize: 11.5,
+                                      color: "var(--muted)",
+                                      marginTop: 2,
+                                    }}
+                                  >
+                                    шт
+                                  </div>
+                                </div>
+                              </div>
+
+                              {hasMarks && (
                                 <div
                                   style={{
                                     display: "flex",
-                                    alignItems: "center",
-                                    gap: 10,
+                                    gap: 8,
                                     flexWrap: "wrap",
+                                    marginTop: 8,
+                                  }}
+                                >
+                                  {missingQty > 0 && (
+                                    <StockOutBadge qty={missingQty} />
+                                  )}
+                                  {notFitQty > 0 && (
+                                    <NotFitBadge qty={notFitQty} />
+                                  )}
+                                </div>
+                              )}
+
+                              <button
+                                onClick={() => toggleMarks(markKey)}
+                                style={{
+                                  marginTop: 10,
+                                  width: "100%",
+                                  padding: isMobile ? "11px 10px" : "8px 10px",
+                                  borderRadius: 10,
+                                  border: "1px dashed rgba(210,153,34,.55)",
+                                  background: "rgba(210,153,34,.08)",
+                                  color: "#d29922",
+                                  fontSize: isMobile ? 14 : 12.5,
+                                  fontWeight: 600,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                {marksOpen
+                                  ? "▲ Скрыть отметки"
+                                  : hasMarks
+                                    ? "✏️ Изменить отметки"
+                                    : "✏️ Не хватает / не поместилось"}
+                              </button>
+
+                              {marksOpen && (
+                                <div
+                                  style={{
+                                    marginTop: 10,
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: 10,
                                   }}
                                 >
                                   <StockOutEditor
+                                    big
                                     orderId={r.oid}
                                     product={it.product}
                                     missingQty={missingQty}
@@ -1260,6 +1358,7 @@ function DeliveryView({
                                     onSave={onSetStockOut}
                                   />
                                   <NotFitEditor
+                                    big
                                     orderId={r.oid}
                                     product={it.product}
                                     notFitQty={notFitQty}
@@ -1267,11 +1366,71 @@ function DeliveryView({
                                     onSave={onSetNotFit}
                                   />
                                 </div>
-                              </div>
+                              )}
                             </div>
                           );
                         })}
                       </div>
+
+                      {/* Итого по заказу и статус доставки */}
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "baseline",
+                          margin: "14px 2px 10px",
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: isMobile ? 14.5 : 13,
+                            color: "var(--muted)",
+                          }}
+                        >
+                          Итого:{" "}
+                          <b style={{ color: "var(--text)" }}>
+                            {fmt(orderQty)} шт
+                          </b>
+                        </span>
+                        <span
+                          style={{
+                            fontSize: isMobile ? 19 : 16,
+                            fontWeight: 800,
+                            fontFamily: "JetBrains Mono,monospace",
+                          }}
+                        >
+                          {fmt(orderSum)} с
+                        </span>
+                      </div>
+                      <button
+                        disabled={busyStatus}
+                        onClick={() =>
+                          onToggleStatus(
+                            r.oid,
+                            delivered ? "Новый" : "Доставлен",
+                          )
+                        }
+                        style={{
+                          width: "100%",
+                          padding: isMobile ? "15px 10px" : "11px 10px",
+                          borderRadius: 12,
+                          fontSize: isMobile ? 16 : 14,
+                          fontWeight: 800,
+                          cursor: busyStatus ? "default" : "pointer",
+                          opacity: busyStatus ? 0.6 : 1,
+                          border: `2px solid ${delivered ? "var(--green)" : "#d29922"}`,
+                          background: delivered
+                            ? "rgba(63,185,80,.16)"
+                            : "rgba(210,153,34,.16)",
+                          color: delivered ? "var(--green)" : "#d29922",
+                        }}
+                      >
+                        {busyStatus
+                          ? "…"
+                          : delivered
+                            ? "✅ Доставлен (нажми, чтобы вернуть)"
+                            : "🚚 Отметить доставленным"}
+                      </button>
                     </div>
                   );
                 })}

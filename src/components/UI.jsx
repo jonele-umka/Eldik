@@ -162,26 +162,63 @@ export function Select({ value, onChange, options, placeholder }) {
   );
 }
 
-export function Pagination({ total, page, onPage }) {
-  const pages = Math.ceil(total / PAGE);
-  if (pages <= 1) return null;
-  const range = [];
-  for (let p = Math.max(1, page - 2); p <= Math.min(pages, page + 2); p++)
-    range.push(p);
-  const btn = (active, disabled, onClick, label) => (
+// Список номеров страниц: 1 … 4 [5] 6 … 20 (с многоточиями)
+function pageList(page, pages) {
+  const set = new Set([1, pages, page - 1, page, page + 1]);
+  if (page <= 3) [2, 3, 4].forEach((p) => set.add(p));
+  if (page >= pages - 2)
+    [pages - 1, pages - 2, pages - 3].forEach((p) => set.add(p));
+  const nums = [...set]
+    .filter((p) => p >= 1 && p <= pages)
+    .sort((a, b) => a - b);
+  const out = [];
+  nums.forEach((p, i) => {
+    if (i > 0 && p - nums[i - 1] > 1) out.push("…" + p);
+    out.push(p);
+  });
+  return out;
+}
+
+// Крупные удобные кнопки страниц. Ставится и над списком, и под ним.
+export function PageNav({ page, pages, onPage, total, style }) {
+  if (!pages || pages <= 1) return null;
+  const base = {
+    minWidth: 40,
+    height: 40,
+    padding: "0 12px",
+    borderRadius: 10,
+    border: "1px solid var(--b1)",
+    background: "var(--s1)",
+    color: "var(--text)",
+    fontSize: 14,
+    fontWeight: 600,
+    fontFamily: "Inter, sans-serif",
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transition: "all .12s",
+    boxShadow: "0 1px 2px rgba(0,0,0,.05)",
+  };
+  const btn = (key, label, onClick, { active, disabled, wide } = {}) => (
     <button
+      key={key}
       disabled={disabled}
       onClick={onClick}
       style={{
-        background: active ? "var(--accent)" : "var(--s2)",
-        border: "1px solid " + (active ? "var(--accent)" : "var(--b1)"),
-        borderRadius: 6,
-        padding: "4px 10px",
-        color: active ? "#fff" : "var(--text)",
-        fontSize: 12,
-        cursor: disabled ? "default" : "pointer",
-        fontFamily: "Inter, sans-serif",
-        opacity: disabled ? 0.4 : 1,
+        ...base,
+        ...(wide ? { padding: "0 16px" } : null),
+        ...(active
+          ? {
+              background: "var(--accent)",
+              borderColor: "var(--accent)",
+              color: "#fff",
+              boxShadow: "0 2px 8px rgba(46,110,224,.35)",
+            }
+          : null),
+        ...(disabled
+          ? { opacity: 0.4, cursor: "default", boxShadow: "none" }
+          : null),
       }}
     >
       {label}
@@ -192,18 +229,52 @@ export function Pagination({ total, page, onPage }) {
       style={{
         display: "flex",
         alignItems: "center",
-        justifyContent: "flex-end",
-        gap: 5,
-        padding: "12px 18px",
-        borderTop: "1px solid var(--b1)",
+        justifyContent: "center",
+        flexWrap: "wrap",
+        gap: 6,
+        margin: "12px 0",
+        ...style,
       }}
     >
-      <span style={{ fontSize: 12, color: "var(--muted)", marginRight: 4 }}>
-        Стр. {page} из {pages}
+      {btn("prev", "‹ Назад", () => onPage(page - 1), {
+        disabled: page <= 1,
+        wide: true,
+      })}
+      {pageList(page, pages).map((p) =>
+        typeof p === "string" ? (
+          <span key={p} style={{ color: "var(--muted)", padding: "0 2px" }}>
+            …
+          </span>
+        ) : (
+          btn(p, p, () => onPage(p), { active: p === page })
+        ),
+      )}
+      {btn("next", "Вперёд ›", () => onPage(page + 1), {
+        disabled: page >= pages,
+        wide: true,
+      })}
+      <span
+        style={{
+          fontSize: 12.5,
+          color: "var(--muted)",
+          marginLeft: 8,
+          whiteSpace: "nowrap",
+        }}
+      >
+        стр. {page} из {pages}
+        {total !== undefined ? ` · ${total}` : ""}
       </span>
-      {btn(false, page === 1, () => onPage(page - 1), "‹")}
-      {range.map((p) => btn(p === page, false, () => onPage(p), p))}
-      {btn(false, page === pages, () => onPage(page + 1), "›")}
+    </div>
+  );
+}
+
+// Пагинация внутри таблицы (Расходы и т.п.) — теперь с теми же кнопками
+export function Pagination({ total, page, onPage }) {
+  const pages = Math.ceil(total / PAGE);
+  if (pages <= 1) return null;
+  return (
+    <div style={{ borderTop: "1px solid var(--b1)", padding: "4px 12px" }}>
+      <PageNav page={page} pages={pages} onPage={onPage} />
     </div>
   );
 }

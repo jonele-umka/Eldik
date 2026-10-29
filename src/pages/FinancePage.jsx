@@ -228,7 +228,7 @@ export default function FinancePage({
   const periodKeyOf = (t) => {
     let y = t.yy,
       m = t.mm;
-    if (t.dd < 15) {
+    if (t.dd < 16) {
       m -= 1;
       if (m === 0) {
         m = 12;
@@ -277,7 +277,7 @@ export default function FinancePage({
     const [y, m] = key.split("-").map(Number);
     const ny = m === 12 ? y + 1 : y;
     const nm = m === 12 ? 1 : m + 1;
-    return `15 ${MS[m - 1]} ${y} – 14 ${MS[nm - 1]} ${ny}`;
+    return `16 ${MS[m - 1]} ${y} – 15 ${MS[nm - 1]} ${ny}`;
   };
   const periodKeys = [
     ...new Set([...Object.keys(urmatPeriods), ...Object.keys(volumePeriods)]),
@@ -300,7 +300,7 @@ export default function FinancePage({
   const curVolume = volumePeriods[curKey] || 0;
   const akylbekNetProfit = allBalance - urmatTotal - amanCut;
 
-  // Клиенты со скидкой 3%: периоды с 16-го по 16-е включительно, по каждому периоду —
+  // Клиенты со скидкой 3%: периоды (первый — 16 сен – 16 окт включительно, дальше 16-е – 15-е), по каждому периоду —
   // сколько заказано, сумма после скидки и сколько оплачено.
   const kPeriodKey = (t, startDay) => {
     let y = t.yy,
@@ -320,14 +320,21 @@ export default function FinancePage({
     const nm = m === 12 ? 1 : m + 1;
     return `${startDay} ${MS[m - 1]} ${y} – ${endDay} ${MS[nm - 1]} ${ny}`;
   };
-  // Периоды, в которые попадает день. Если overlap — день границы (16-е)
-  // входит и в закрывающийся, и в начинающийся период (16 по 16 включительно).
-  const kPeriodKeys = (t, startDay, overlap) => {
-    const ks = [kPeriodKey(t, startDay)];
-    // 16-е входит и в предыдущий период, но не раньше первого (с 16 сентября)
-    if (overlap && t.dd === startDay && !(t.yy === 2026 && t.mm === 9))
-      ks.push(kPeriodKey({ ...t, dd: startDay - 1 }, startDay));
-    return ks;
+  // Кубаныч ДФ / Элдияр ДФ: самый первый период — с 16 сентября по 16 октября
+  // ВКЛЮЧИТЕЛЬНО (так он рассчитался), дальше обычные периоды с 16-го по 15-е:
+  // 17 окт – 15 ноя, затем 16 ноя – 15 дек и т.д.
+  const FIRST_END = 20261016;
+  const kKeyOf = (t, startDay, special) => {
+    if (special) {
+      const n = t.yy * 10000 + t.mm * 100 + t.dd;
+      if (n <= FIRST_END) return "2026-09";
+    }
+    return kPeriodKey(t, startDay);
+  };
+  const kLabelOf = (key, dc) => {
+    if (dc.special && key === "2026-09") return "16 сен 2026 – 16 окт 2026";
+    if (dc.special && key === "2026-10") return "17 окт 2026 – 15 ноя 2026";
+    return kLabel(key, dc.startDay, dc.endDay);
   };
   const discountClients = [
     {
@@ -335,8 +342,7 @@ export default function FinancePage({
       title: "Кубаныч ДФ",
       discount: DISCOUNT,
       startDay: 16,
-      endDay: 16,
-      overlap: true,
+      endDay: 15,
       since: 20260916,
     },
     {
@@ -344,9 +350,9 @@ export default function FinancePage({
       title: "Элдияр ДФ",
       discount: DISCOUNT,
       startDay: 16,
-      endDay: 16,
-      overlap: true,
+      endDay: 15,
       since: 20260916,
+      irregular: true,
     },
     // Бартер: «оплачено» — это приходы товаров от Украины (считаются как оплата)
     {
@@ -358,7 +364,17 @@ export default function FinancePage({
       barter: true,
     },
   ].map(
-    ({ match, title, discount, startDay, endDay, overlap, since, barter }) => {
+    ({
+      match,
+      title,
+      discount,
+      startDay,
+      endDay,
+      special,
+      since,
+      irregular,
+      barter,
+    }) => {
       const periods = {};
       const row = (k) => periods[k] || (periods[k] = { orders: 0, paid: 0 });
       let realName = "";
@@ -371,9 +387,7 @@ export default function FinancePage({
         if (since && t.yy * 10000 + t.mm * 100 + t.dd < since) return;
         if (!realName) realName = g.client;
         totOrders += g.effective;
-        kPeriodKeys(t, startDay, overlap).forEach((k) => {
-          row(k).orders += g.effective;
-        });
+        row(kKeyOf(t, startDay, special)).orders += g.effective;
       });
       (Array.isArray(payments) ? payments : []).forEach((p) => {
         if (!normClient(p.client).includes(match)) return;
@@ -381,10 +395,18 @@ export default function FinancePage({
         if (!t) return;
         if (since && t.yy * 10000 + t.mm * 100 + t.dd < since) return;
         totPaid += Number(p.amount || 0);
-        kPeriodKeys(t, startDay, overlap).forEach((k) => {
-          row(k).paid += Number(p.amount || 0);
-        });
+        row(kKeyOf(t, startDay, special)).paid += Number(p.amount || 0);
       });
+      // Переплата прошлого периода переходит в следующий и уменьшает его остаток.
+      let carry = 0;
+      Object.keys(periods)
+        .sort()
+        .forEach((k) => {
+          const r = periods[k];
+          r.carryIn = carry;
+          r.diff = r.orders * (1 - discount) - r.paid - carry;
+          carry = r.diff < 0 ? -r.diff : 0;
+        });
       const keys = Object.keys(periods).sort().reverse();
       const orders_ = totOrders;
       const paid = totPaid;
@@ -397,7 +419,8 @@ export default function FinancePage({
         discount,
         startDay,
         endDay,
-        overlap,
+        special,
+        irregular,
         barter,
         realName: realName || title,
       };
@@ -501,7 +524,7 @@ export default function FinancePage({
               <thead>
                 <tr style={{ background: "var(--s2)" }}>
                   {[
-                    "Период Урмата (с 15 по 14)",
+                    "Период Урмата (с 16 по 15)",
                     "Объём заказов (Дордой-фуд)",
                     "Поступило",
                     "5%",
@@ -590,8 +613,12 @@ export default function FinancePage({
                       "Период",
                       "Заказано",
                       ...(dc.discount ? ["После скидки 3%"] : []),
-                      dc.barter ? "Оплачено товарами" : "Оплачено",
-                      "Остаток",
+                      ...(dc.irregular
+                        ? []
+                        : [
+                            dc.barter ? "Оплачено товарами" : "Оплачено",
+                            "Остаток",
+                          ]),
                     ].map((h) => (
                       <TH key={h}>{h}</TH>
                     ))}
@@ -601,33 +628,47 @@ export default function FinancePage({
                   {dc.keys.map((k) => {
                     const r = dc.periods[k];
                     const due = r.orders * (1 - dc.discount);
-                    const diff = due - r.paid;
+                    const diff = r.diff;
                     return (
                       <TR key={k}>
-                        <TD>{kLabel(k, dc.startDay, dc.endDay)}</TD>
+                        <TD>{kLabelOf(k, dc)}</TD>
                         <TD>{fmtM(r.orders)}</TD>
                         {dc.discount ? <TD>{fmtM(due)}</TD> : null}
-                        <TD>{fmtM(r.paid)}</TD>
-                        <TD>
-                          <span
-                            style={{
-                              color:
-                                diff > 0
-                                  ? "var(--red)"
-                                  : diff < 0
-                                    ? "var(--green)"
-                                    : "inherit",
-                              fontWeight: 600,
-                            }}
-                          >
-                            {diff > 0
-                              ? "должен "
-                              : diff < 0
-                                ? "переплата "
-                                : ""}
-                            {fmtM(Math.abs(diff))}
-                          </span>
-                        </TD>
+                        {dc.irregular ? null : <TD>{fmtM(r.paid)}</TD>}
+                        {dc.irregular ? null : (
+                          <TD>
+                            <span
+                              style={{
+                                color:
+                                  diff > 0
+                                    ? "var(--red)"
+                                    : diff < 0
+                                      ? "var(--green)"
+                                      : "inherit",
+                                fontWeight: 600,
+                              }}
+                            >
+                              {diff > 0
+                                ? "должен "
+                                : diff < 0
+                                  ? "переплата "
+                                  : ""}
+                              {fmtM(Math.abs(diff))}
+                            </span>
+                            {r.carryIn > 0 && (
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  color: "var(--muted)",
+                                  marginTop: 2,
+                                }}
+                              >
+                                учтена переплата прошлого периода{" "}
+                                {fmtM(r.carryIn)}
+                              </div>
+                            )}
+                          </TD>
+                        )}
                       </TR>
                     );
                   })}
@@ -643,30 +684,63 @@ export default function FinancePage({
                         <b>{fmtM(dc.orders * (1 - dc.discount))}</b>
                       </TD>
                     ) : null}
-                    <TD>
-                      <b>{fmtM(dc.paid)}</b>
-                    </TD>
-                    <TD>
-                      <b>
-                        {(() => {
-                          const d = dc.orders * (1 - dc.discount) - dc.paid;
-                          return (
-                            (d > 0 ? "должен " : d < 0 ? "переплата " : "") +
-                            fmtM(Math.abs(d))
-                          );
-                        })()}
-                      </b>
-                    </TD>
+                    {dc.irregular ? null : (
+                      <TD>
+                        <b>{fmtM(dc.paid)}</b>
+                      </TD>
+                    )}
+                    {dc.irregular ? null : (
+                      <TD>
+                        <b>
+                          {(() => {
+                            const d = dc.orders * (1 - dc.discount) - dc.paid;
+                            return (
+                              (d > 0 ? "должен " : d < 0 ? "переплата " : "") +
+                              fmtM(Math.abs(d))
+                            );
+                          })()}
+                        </b>
+                      </TD>
+                    )}
                   </TR>
                 </tbody>
               </table>
             </div>
+            {dc.irregular && (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 24,
+                  marginTop: 14,
+                }}
+              >
+                <MiniStat
+                  label="Оплачено всего"
+                  value={dc.paid}
+                  color="var(--green)"
+                />
+                {(() => {
+                  const d = dc.orders * (1 - dc.discount) - dc.paid;
+                  return (
+                    <MiniStat
+                      label={d < 0 ? "Переплата" : "Остаток долга"}
+                      value={Math.abs(d)}
+                      color={d > 0 ? "var(--red)" : "var(--green)"}
+                      bold
+                    />
+                  );
+                })()}
+              </div>
+            )}
             <div
               style={{ fontSize: 11.5, color: "var(--muted2)", marginTop: 10 }}
             >
               Период — по дате доставки.
-              {dc.overlap &&
-                " Для этого клиента период с 16-го по 16-е включительно: заказы и оплаты за 16-е входят в оба соседних периода, а в строке «Всего» считаются один раз."}{" "}
+              {!dc.barter &&
+                (dc.irregular
+                  ? " Платит нерегулярно, поэтому оплата показана одним итогом, а не по периодам."
+                  : " Периоды с 16-го по 15-е. Переплата переходит в следующий период.")}{" "}
               Сумма заказа — как «К оплате» в карточке: за вычетом возвратов,
               «нет в наличии» и «не поместилось». Начальный остаток не
               учитывается.

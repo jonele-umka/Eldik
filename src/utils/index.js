@@ -177,6 +177,19 @@ export function buildReturnCredits(groups, returns) {
   return out;
 }
 
+// Скидка 3% для Кубаныч ДФ и Элдияр ДФ на заказы, доставленные с 16.09.2026:
+// они платят 97% от суммы заказа. Множитель на долг заказа (1 — без скидки).
+export function discountFactor(clientName, deliveryDate) {
+  const n = String(clientName || "").toLowerCase();
+  if (!n.includes("кубаныч") && !n.includes("элдияр")) return 1;
+  const p = String(deliveryDate || "")
+    .split(" ")[0]
+    .split(".");
+  if (p.length !== 3) return 1;
+  const key = Number(p[2]) * 10000 + Number(p[1]) * 100 + Number(p[0]);
+  return key >= 20260916 ? 0.97 : 1;
+}
+
 export function distributeClientCredits(
   groups,
   payments,
@@ -297,17 +310,21 @@ export function distributeClientCredits(
     // всегда старше самих заказов по дате, а приоритет тут другой: клиент
     // платит за конкретную (обычно недавнюю) поставку, она закрывается
     // полностью, и только излишек уменьшает старый долг.
+    // Порядок и «возраст» заказа — по ДАТЕ ДОСТАВКИ (если её нет — по дате
+    // создания): заказ, внесённый задним числом, гасится в свою очередь.
+    const dueDate = (g) => parseDate(g.deliveryDate || g.orderDate) || 0;
     const debts = (byClient[key] || [])
       .slice()
-      .sort((a, b) => parseDate(a.orderDate) - parseDate(b.orderDate))
+      .sort((a, b) => dueDate(a) - dueDate(b))
       .map((g) => ({
         kind: "order",
-        date: parseDate(g.orderDate) || 0,
+        date: dueDate(g),
         group: g,
+        factor: discountFactor(g.client, g.deliveryDate || g.orderDate),
         remaining: Math.max(
           0,
-          Number(g.totalSum || 0) -
-            Number(g.returnedAmount || 0) -
+          (Number(g.totalSum || 0) - Number(g.returnedAmount || 0)) *
+            discountFactor(g.client, g.deliveryDate || g.orderDate) -
             Number(g.paidAmount || 0),
         ),
       }));
@@ -338,9 +355,13 @@ export function distributeClientCredits(
       item.remaining -= applied;
       if (item.kind === "order") {
         const g = item.group;
+        // со скидкой: деньги считаем в «полных» суммах заказа, чтобы
+        // полностью оплаченный заказ показывал 100%, без хвоста в 3%
+        const f = item.factor || 1;
         g.totalPaidAmount =
-          (g.totalPaidAmount ?? Number(g.paidAmount || 0)) + applied;
-        if (credit.isOffset) g.offsetAmount = (g.offsetAmount || 0) + applied;
+          (g.totalPaidAmount ?? Number(g.paidAmount || 0) / f) + applied / f;
+        if (credit.isOffset)
+          g.offsetAmount = (g.offsetAmount || 0) + applied / f;
       }
       return remaining - applied;
     };

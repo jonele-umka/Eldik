@@ -9,6 +9,7 @@ import {
   getMonth,
   monthTitle,
   orderEffectiveTotal,
+  discountFactor,
 } from "../utils/index.js";
 import { dateTimeKey, fmtDateTime } from "../utils/ledger.js";
 import { KPI, TableWrap, TR, TD, TH, MoneyCell } from "../components/UI.jsx";
@@ -343,7 +344,6 @@ export default function ClientDetailPage({
                   market: clientMarket,
                   amount,
                   paymentDate: form.date,
-                  ...(form.toOpening ? { orderId: "OPENING" } : {}),
                 }),
           AFFECTS.payment,
         );
@@ -539,7 +539,17 @@ export default function ClientDetailPage({
   // включая взаимозачёты.
   //
 
-  const calculatedDebt = totalSum - retSum - paidSum - offsetSum + openingSum;
+  // Скидка 3% (Кубаныч ДФ, Элдияр ДФ) — клиент платит 97% суммы заказа.
+  const discountSum = groups.reduce(
+    (s, g) =>
+      s +
+      orderEffectiveTotal(g, stockOutMap, notFitMap) *
+        (1 - discountFactor(g.client, g.deliveryDate || g.orderDate)),
+    0,
+  );
+
+  const calculatedDebt =
+    totalSum - retSum - paidSum - offsetSum + openingSum - discountSum;
 
   const debt = Math.max(0, calculatedDebt);
 
@@ -647,8 +657,9 @@ export default function ClientDetailPage({
           parseDate(b.deliveryDate || b.orderDate) -
           parseDate(a.deliveryDate || a.orderDate),
       );
-      m.sum += eff;
-      m.debt += Math.max(0, eff - Math.min(eff, paid));
+      const f = discountFactor(g.client, g.deliveryDate || g.orderDate);
+      m.sum += eff * f;
+      m.debt += Math.max(0, eff - Math.min(eff, paid)) * f;
     });
     return [...map.values()].sort((a, b) => (a.key < b.key ? 1 : -1));
   }, [groups, stockOutMap, notFitMap]);
@@ -673,9 +684,10 @@ export default function ClientDetailPage({
 
       <h2
         style={{
-          fontSize: 18,
+          fontSize: isMobile ? 16 : 18,
           fontWeight: 600,
           marginBottom: 14,
+          wordBreak: "break-word",
         }}
       >
         {client || "Клиент"}
@@ -691,6 +703,14 @@ export default function ClientDetailPage({
         )}
 
         <KPI label="Заказано" value={fmtM(totalSum)} color="var(--accent)" />
+
+        {discountSum > 0.5 && (
+          <KPI
+            label="Скидка 3%"
+            value={`−${fmtM(discountSum)}`}
+            color="var(--yellow)"
+          />
+        )}
 
         <KPI label="Оплачено нам" value={fmtM(paidSum)} color="var(--green)" />
 
@@ -792,10 +812,17 @@ export default function ClientDetailPage({
       <div
         style={{
           display: "flex",
+          flexDirection: isMobile ? "column" : "row",
           gap: "20px",
         }}
       >
-        <div>
+        <div
+          style={{
+            minWidth: 0,
+            order: isMobile ? 2 : 0,
+            width: isMobile ? "100%" : undefined,
+          }}
+        >
           {feed.length > 0 && (
             <>
               <div
@@ -820,7 +847,14 @@ export default function ClientDetailPage({
           )}
         </div>
 
-        <div>
+        <div
+          style={{
+            minWidth: 0,
+            order: isMobile ? 1 : 0,
+            width: isMobile ? "100%" : undefined,
+            flex: isMobile ? "none" : "1 1 0",
+          }}
+        >
           <div
             style={{
               fontSize: 13,
@@ -870,7 +904,8 @@ export default function ClientDetailPage({
                     <div
                       style={{
                         display: "flex",
-                        gap: 16,
+                        flexWrap: "wrap",
+                        gap: isMobile ? 10 : 16,
                         alignItems: "center",
                         fontSize: 12.5,
                       }}
@@ -943,7 +978,7 @@ export default function ClientDetailPage({
         </Field>
         <Field
           label="Сумма, сом"
-          hint="Оплата закрывает заказы (старые первыми). Начальный остаток — только с галочкой ниже"
+          hint="Оплата закрывает заказы (старые первыми)"
         >
           <TextInput
             inputMode="numeric"
@@ -951,26 +986,6 @@ export default function ClientDetailPage({
             onChange={(e) => setForm({ ...form, amount: e.target.value })}
           />
         </Field>
-        {!form.id && openingRemaining > 0 && (
-          <label
-            style={{
-              display: "flex",
-              gap: 8,
-              alignItems: "center",
-              fontSize: 13,
-              marginTop: 4,
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={!!form.toOpening}
-              onChange={(e) =>
-                setForm({ ...form, toOpening: e.target.checked })
-              }
-            />
-            Оплата начального остатка (осталось {fmtM(openingRemaining)})
-          </label>
-        )}
       </Modal>
 
       {/* Взаимозачёт */}

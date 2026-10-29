@@ -10,7 +10,7 @@ import {
 } from "../utils/index.js";
 import { dateTimeKey } from "../utils/ledger.js";
 
-import { KPI, Select } from "../components/UI.jsx";
+import { KPI, Select, PageNav } from "../components/UI.jsx";
 import { Btn } from "../components/Form.jsx";
 import CreateOrderModal from "../components/CreateOrderModal.jsx";
 import OrderDetailModal from "../components/OrderDetailModal.jsx";
@@ -369,6 +369,9 @@ export default function OrdersPage({
         {allGroups.length} заказов · стр. {page} из {Math.max(1, totalPages)}
       </div>
 
+      {/* страницы сверху — чтобы не крутить вниз */}
+      <PageNav page={page} pages={totalPages} onPage={setPage} />
+
       {/* list */}
       {groups.length === 0 ? (
         <div style={{ ...S.card, padding: 40, textAlign: "center" }}>
@@ -400,31 +403,16 @@ export default function OrdersPage({
         />
       )}
 
-      {/* pagination */}
-      {totalPages > 1 && (
-        <div style={{ display: "flex", justifyContent: "center", gap: 6 }}>
-          <button disabled={page === 1} onClick={() => setPage((p) => p - 1)}>
-            ‹
-          </button>
-
-          {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-            const p = Math.max(1, Math.min(page - 2, totalPages - 4)) + i;
-
-            return (
-              <button key={p} onClick={() => setPage(p)}>
-                {p}
-              </button>
-            );
-          })}
-
-          <button
-            disabled={page === totalPages}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            ›
-          </button>
-        </div>
-      )}
+      {/* страницы снизу — после перехода возвращаемся к началу списка */}
+      <PageNav
+        page={page}
+        pages={totalPages}
+        onPage={(p) => {
+          setPage(p);
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
+        style={{ margin: "16px 0 24px" }}
+      />
     </>
   );
 }

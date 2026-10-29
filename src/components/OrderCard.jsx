@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { fmtM } from "../utils/index.js";
+import { fmtM, discountFactor } from "../utils/index.js";
 import { Badge, MoneyCell, ProductThumb } from "./UI.jsx";
 import { useData, AFFECTS } from "../store/DataContext.jsx";
 import { useUI } from "../store/UIContext.jsx";
@@ -120,19 +120,30 @@ export function OrderCard({
   // Погашение через взаимозачёт
   const offsetPayment = Number(offsetAmount || 0);
 
-  // Всего погашено.
+  // Скидка 3% (Кубаныч ДФ, Элдияр ДФ): клиент платит 97% суммы заказа.
+  // Внутри считаем в «полных» суммах, а клиенту показываем долг со скидкой.
+  const factor = discountFactor(client, deliveryDate || orderDate);
+  const hasDiscount = factor < 1;
+
+  // Всего погашено (в «полных» суммах заказа).
   // Если totalPaidAmount передан из ClientDetailPage —
   // используем его.
   const paid =
     totalPaidAmount !== undefined
       ? Number(totalPaidAmount || 0)
-      : normalPayment + offsetPayment;
+      : (normalPayment + offsetPayment) / factor;
 
   // Защита: погашение не должно быть больше суммы к оплате
   const actualPaid = Math.min(effectiveTotal, paid);
 
   // Остаток долга
   const debt = Math.max(0, effectiveTotal - actualPaid);
+
+  // То, что видит клиент: со скидкой
+  const discountAmount = effectiveTotal * (1 - factor);
+  const payable = effectiveTotal * factor;
+  const paidShown = actualPaid * factor;
+  const debtShown = debt * factor;
 
   // Статус оплаты
   const isFullyPaid = effectiveTotal > 0 && debt <= 0;
@@ -777,6 +788,36 @@ export function OrderCard({
             </div>
           )}
 
+          {/* Скидка 3% */}
+
+          {hasDiscount && (
+            <>
+              <div style={{ fontSize: 12 }}>
+                <span style={{ color: "var(--muted)" }}>Скидка 3%: </span>
+                <span
+                  style={{
+                    fontFamily: "JetBrains Mono,monospace",
+                    color: "var(--yellow)",
+                    fontWeight: 600,
+                  }}
+                >
+                  −{fmtM(discountAmount)}
+                </span>
+              </div>
+              <div style={{ fontSize: 12 }}>
+                <span style={{ color: "var(--muted)" }}>К оплате: </span>
+                <span
+                  style={{
+                    fontFamily: "JetBrains Mono,monospace",
+                    fontWeight: 600,
+                  }}
+                >
+                  {fmtM(payable)}
+                </span>
+              </div>
+            </>
+          )}
+
           {/* Обычная оплата */}
 
           {normalPayment > 0 && (
@@ -856,7 +897,7 @@ export function OrderCard({
                   color: "var(--green)",
                 }}
               >
-                {fmtM(actualPaid)}
+                {fmtM(paidShown)}
               </span>
             </div>
           ) : (
@@ -888,7 +929,7 @@ export function OrderCard({
                       color: "var(--green)",
                     }}
                   >
-                    {fmtM(actualPaid)}
+                    {fmtM(paidShown)}
                   </span>
                 </div>
               )}
@@ -912,7 +953,7 @@ export function OrderCard({
                     color: "var(--red)",
                   }}
                 >
-                  {fmtM(debt)}
+                  {fmtM(debtShown)}
                 </span>
               </div>
             </div>

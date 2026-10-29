@@ -70,7 +70,18 @@ function firstAllowedPage(allowed) {
 // ── Боковая панель: полная (десктоп) ──────────────────
 function Sidebar({ page, setPage, setSearch, updatedAt, pages }) {
   return (
-    <aside style={S.sidebar}>
+    <aside
+      style={{
+        ...S.sidebar,
+        // Меню не уезжает вверх вместе со страницей — всегда на виду
+        position: "sticky",
+        top: 0,
+        alignSelf: "flex-start",
+        height: "100vh",
+        overflowY: "auto",
+        flexShrink: 0,
+      }}
+    >
       <div style={S.logo}>
         <img src={logo1} alt="logo" style={{ width: "100%", maxWidth: 100 }} />
       </div>
@@ -107,7 +118,17 @@ function Sidebar({ page, setPage, setSearch, updatedAt, pages }) {
 // ── Боковая панель: иконки (планшет) ──────────────────
 function SidebarCollapsed({ page, setPage, setSearch, pages }) {
   return (
-    <aside style={S.sidebarCollapsed}>
+    <aside
+      style={{
+        ...S.sidebarCollapsed,
+        position: "sticky",
+        top: 0,
+        alignSelf: "flex-start",
+        height: "100vh",
+        overflowY: "auto",
+        flexShrink: 0,
+      }}
+    >
       <div style={S.logoCollapsed}>
         <img
           src={logo1}

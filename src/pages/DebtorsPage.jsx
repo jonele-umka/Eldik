@@ -3,7 +3,13 @@ import { fmtM, filterSearch, parseDate } from "../utils/index.js";
 import { norm } from "../utils/ledger.js";
 import { KPI, TableWrap, TR, TD, TH, MoneyCell } from "../components/UI.jsx";
 import { S } from "../utils/styles.js";
-import { Btn, Toolbar, Field, TextInput, SelectField } from "../components/Form.jsx";
+import {
+  Btn,
+  Toolbar,
+  Field,
+  TextInput,
+  SelectField,
+} from "../components/Form.jsx";
 import OpeningBalanceModal from "../components/OpeningBalanceModal.jsx";
 
 export default function DebtorsPage({ data, clients, search, onSelectClient }) {
@@ -46,26 +52,43 @@ export default function DebtorsPage({ data, clients, search, onSelectClient }) {
     let list = filterSearch(arr, ["client"], search);
 
     if (marketFilter) {
-      list = list.filter((r) => marketByClient[norm(r.client)] === marketFilter);
+      list = list.filter(
+        (r) => marketByClient[norm(r.client)] === marketFilter,
+      );
     }
 
     const min = minSum !== "" ? Number(minSum) : -Infinity;
     const max = maxSum !== "" ? Number(maxSum) : Infinity;
     if (minSum !== "" || maxSum !== "") {
-      list = list.filter((r) => Number(r.debt || 0) >= min && Number(r.debt || 0) <= max);
+      list = list.filter(
+        (r) => Number(r.debt || 0) >= min && Number(r.debt || 0) <= max,
+      );
     }
 
     if (dateFrom || dateTo) {
       const from = dateFrom ? new Date(dateFrom).getTime() : -Infinity;
-      const to = dateTo ? new Date(dateTo).getTime() + 24 * 60 * 60 * 1000 - 1 : Infinity;
+      const to = dateTo
+        ? new Date(dateTo).getTime() + 24 * 60 * 60 * 1000 - 1
+        : Infinity;
       list = list.filter((r) => {
         const d = parseDate(r.debtDate || r.lastOrderDate);
         return d >= from && d <= to;
       });
     }
 
-    return list.slice().sort((a, b) => Number(b.debt || 0) - Number(a.debt || 0));
-  }, [arr, search, marketFilter, minSum, maxSum, dateFrom, dateTo, marketByClient]);
+    return list
+      .slice()
+      .sort((a, b) => Number(b.debt || 0) - Number(a.debt || 0));
+  }, [
+    arr,
+    search,
+    marketFilter,
+    minSum,
+    maxSum,
+    dateFrom,
+    dateTo,
+    marketByClient,
+  ]);
 
   const totalDebt = filtered.reduce((s, r) => s + Number(r.debt || 0), 0);
   const maxDebt = Math.max(...filtered.map((r) => Number(r.debt || 0)), 1);
@@ -184,11 +207,11 @@ export default function DebtorsPage({ data, clients, search, onSelectClient }) {
             {[
               "Клиент",
               "Рынок",
-              "Нач. остаток",
+              "Общий долг",
               "Долг по новым заказам",
               "Оплачено",
               "Взаимозачёт",
-              "Общий долг",
+              "Нач. остаток",
               "Прогресс",
             ].map((h) => (
               <TH key={h}>{h}</TH>
@@ -206,7 +229,9 @@ export default function DebtorsPage({ data, clients, search, onSelectClient }) {
                   color: "var(--muted)",
                 }}
               >
-                {arr.length === 0 ? "Должников нет 🎉" : "Ничего не найдено по фильтрам"}
+                {arr.length === 0
+                  ? "Должников нет 🎉"
+                  : "Ничего не найдено по фильтрам"}
               </td>
             </tr>
           ) : (
@@ -225,7 +250,13 @@ export default function DebtorsPage({ data, clients, search, onSelectClient }) {
                   <TD>
                     <b>{r.client}</b>
                     {(r.debtDate || r.lastOrderDate) && (
-                      <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "var(--muted)",
+                          marginTop: 2,
+                        }}
+                      >
                         посл. заказ: {r.debtDate || r.lastOrderDate}
                       </div>
                     )}
@@ -234,7 +265,7 @@ export default function DebtorsPage({ data, clients, search, onSelectClient }) {
                     {marketByClient[norm(r.client)] || "—"}
                   </TD>
                   <TD>
-                    <MoneyCell n={r.openingBalance} pos={false} />
+                    <MoneyCell n={r.debt} pos={false} />
                   </TD>
                   <TD>
                     <MoneyCell n={r.newOrdersDebt ?? r.debt} pos={false} />
@@ -246,7 +277,7 @@ export default function DebtorsPage({ data, clients, search, onSelectClient }) {
                     <MoneyCell n={r.offsets} pos />
                   </TD>
                   <TD>
-                    <MoneyCell n={r.debt} pos={false} />
+                    <MoneyCell n={r.openingBalance} pos={false} />
                   </TD>
                   <TD>
                     <div

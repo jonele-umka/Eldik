@@ -18,6 +18,10 @@ import { ProductThumb } from "./UI.jsx";
 import { priceOf } from "../utils/promo.js";
 import { fmtM, parseDate } from "../utils/index.js";
 
+// Строка заказа: ключ — название товара; дополнительные строки того же
+// товара (другая тара / цвет) — "Товар#2", "Товар#3"...
+const baseOf = (key) => String(key).split("#")[0];
+
 const normName = (s) =>
   String(s || "")
     .trim()
@@ -53,7 +57,8 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
   );
   const [client, setClient] = useState(defaultClient || "");
   const [deliveryDate, setDeliveryDate] = useState(todayString());
-  const [items, setItems] = useState({}); // product -> {qty, comment}
+  const [items, setItems] = useState({}); // ключ строки -> {qty, comment}
+  const [extra, setExtra] = useState({}); // товар -> ключи доп. строк
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [unfulfilledOpen, setUnfulfilledOpen] = useState(false);
@@ -184,9 +189,27 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
   // Меняем флаг (oldBox/dark) и переносим количество между режимами:
   // в раздельный режим — всё количество уходит в "обычные", обратно —
   // сумма обоих цветов возвращается в общее количество.
+  const addLine = (product) =>
+    setExtra((prev) => {
+      const list = prev[product] || [];
+      return { ...prev, [product]: [...list, `${product}#${Date.now()}`] };
+    });
+  const removeLine = (key) => {
+    const product = baseOf(key);
+    setExtra((prev) => ({
+      ...prev,
+      [product]: (prev[product] || []).filter((k) => k !== key),
+    }));
+    setItems((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
   const toggleFlag = (product, flag) =>
     setItems((prev) => {
-      const row = prices.find((p) => p.product === product);
+      const row = prices.find((p) => p.product === baseOf(product));
       const cur = prev[product] || { qty: 0, comment: "" };
       const next = { ...cur, [flag]: !cur[flag] };
       const was = isSplit(row, cur);
@@ -240,8 +263,8 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
   const totals = useMemo(() => {
     let boxes = 0;
     let sum = 0;
-    Object.entries(items).forEach(([product, it]) => {
-      const row = prices.find((p) => p.product === product);
+    Object.entries(items).forEach(([key, it]) => {
+      const row = prices.find((p) => p.product === baseOf(key));
       if (isSplit(row, it)) {
         const qw = Number(it.qtyWhite || 0);
         const qd = Number(it.qtyDark || 0);
@@ -263,7 +286,8 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
     if (!client) return toast("Выберите клиента", "err");
 
     const orderItems = [];
-    Object.entries(items).forEach(([product, it]) => {
+    Object.entries(items).forEach(([key, it]) => {
+      const product = baseOf(key);
       const row = prices.find((p) => p.product === product);
       if (isSplit(row, it)) {
         const oldBox = !!it.oldBox;
@@ -521,205 +545,242 @@ export default function CreateOrderModal({ open, onClose, defaultClient }) {
           </div>
         )}
 
-        {shownProducts.map((p) => {
-          const it = items[p.product] || { qty: 0, comment: "", oldBox: false };
-          const canOldBox = Number(p.ownBoxPrice || 0) > 0;
-          const canSplit = canColorSplit(p);
-          const hasDark = canDark(p);
-          const splitActive = isSplit(p, it);
-          const qtyWhite = Number(it.qtyWhite || 0);
-          const qtyDark = Number(it.qtyDark || 0);
-          const rawQty = Number(it.qty || 0);
-          const qty = splitActive ? qtyWhite + qtyDark : rawQty;
-          const price = priceForItem(p, it);
-          const cp = colorPrices(p, !!it.oldBox);
-          const showOptions =
-            (canOldBox || canSplit || hasDark) &&
-            (rawQty > 0 || it.oldBox || it.dark || qty > 0);
-          const optBtn = (on) => ({
-            background: on ? "rgba(210,153,34,0.15)" : "var(--s1)",
-            border: `1px solid ${on ? "#d29922" : "var(--b1)"}`,
-            borderRadius: 7,
-            padding: "5px 8px",
-            color: on ? "#d29922" : "var(--muted)",
-            fontSize: 11,
-            fontWeight: 600,
-            cursor: "pointer",
-            whiteSpace: "nowrap",
-          });
-          const stepper = (color, val, label) => (
-            <div
-              key={color}
-              style={{ display: "flex", alignItems: "center", gap: 5 }}
-            >
-              <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
-                {label}
-              </span>
-              <Btn
-                size="sm"
-                variant="ghost"
-                onClick={() => setQtyColor(p.product, color, val - 1)}
+        {shownProducts.flatMap((p) =>
+          [p.product, ...(extra[p.product] || [])].map((key, li) => {
+            const it = items[key] || { qty: 0, comment: "", oldBox: false };
+            const canOldBox = Number(p.ownBoxPrice || 0) > 0;
+            const canSplit = canColorSplit(p);
+            const hasDark = canDark(p);
+            const splitActive = isSplit(p, it);
+            const qtyWhite = Number(it.qtyWhite || 0);
+            const qtyDark = Number(it.qtyDark || 0);
+            const rawQty = Number(it.qty || 0);
+            const qty = splitActive ? qtyWhite + qtyDark : rawQty;
+            const price = priceForItem(p, it);
+            const cp = colorPrices(p, !!it.oldBox);
+            const showOptions =
+              (canOldBox || canSplit || hasDark) &&
+              (rawQty > 0 || it.oldBox || it.dark || qty > 0);
+            const optBtn = (on) => ({
+              background: on ? "rgba(210,153,34,0.15)" : "var(--s1)",
+              border: `1px solid ${on ? "#d29922" : "var(--b1)"}`,
+              borderRadius: 7,
+              padding: "5px 8px",
+              color: on ? "#d29922" : "var(--muted)",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            });
+            const stepper = (color, val, label) => (
+              <div
+                key={color}
+                style={{ display: "flex", alignItems: "center", gap: 5 }}
               >
-                −
-              </Btn>
-              <input
-                value={val || ""}
-                onChange={(e) =>
-                  setQtyColor(
-                    p.product,
-                    color,
-                    parseInt(e.target.value.replace(/\D/g, "")) || 0,
-                  )
-                }
-                placeholder="0"
-                style={{
-                  width: 46,
-                  textAlign: "center",
-                  background: "var(--s1)",
-                  border: "1px solid var(--b1)",
-                  borderRadius: 8,
-                  color: "var(--text)",
-                  padding: "6px 4px",
-                  fontFamily: "JetBrains Mono, monospace",
-                  fontSize: 14,
-                  outline: "none",
-                }}
-              />
-              <Btn
-                size="sm"
-                variant="green"
-                onClick={() => setQtyColor(p.product, color, val + 1)}
-              >
-                +
-              </Btn>
-            </div>
-          );
+                <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                  {label}
+                </span>
+                <Btn
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setQtyColor(key, color, val - 1)}
+                >
+                  −
+                </Btn>
+                <input
+                  value={val || ""}
+                  onChange={(e) =>
+                    setQtyColor(
+                      key,
+                      color,
+                      parseInt(e.target.value.replace(/\D/g, "")) || 0,
+                    )
+                  }
+                  placeholder="0"
+                  style={{
+                    width: 46,
+                    textAlign: "center",
+                    background: "var(--s1)",
+                    border: "1px solid var(--b1)",
+                    borderRadius: 8,
+                    color: "var(--text)",
+                    padding: "6px 4px",
+                    fontFamily: "JetBrains Mono, monospace",
+                    fontSize: 14,
+                    outline: "none",
+                  }}
+                />
+                <Btn
+                  size="sm"
+                  variant="green"
+                  onClick={() => setQtyColor(key, color, val + 1)}
+                >
+                  +
+                </Btn>
+              </div>
+            );
 
-          return (
-            <div
-              key={p.product}
-              style={{
-                border: `1px solid ${qty > 0 ? "var(--green)" : "var(--b1)"}`,
-                background: qty > 0 ? "rgba(63,185,80,.06)" : "var(--s2)",
-                borderRadius: 10,
-                padding: "10px 12px",
-                marginBottom: 8,
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <ProductThumb src={p.image} size={34} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>
-                    {p.product}
+            return (
+              <div
+                key={key}
+                style={{
+                  border: `1px solid ${qty > 0 ? "var(--green)" : "var(--b1)"}`,
+                  background: qty > 0 ? "rgba(63,185,80,.06)" : "var(--s2)",
+                  borderRadius: 10,
+                  padding: "10px 12px",
+                  marginBottom: 8,
+                  marginLeft: li > 0 ? 16 : 0,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <ProductThumb src={p.image} size={34} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 600 }}>
+                      {p.product}
+                      {li > 0 && (
+                        <span
+                          style={{
+                            fontWeight: 500,
+                            fontSize: 11.5,
+                            color: "var(--muted)",
+                            marginLeft: 6,
+                          }}
+                        >
+                          · ещё строка
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                      {splitActive
+                        ? `обычн. ${withPerKg(p, cp.white)} · тём. ${withPerKg(p, cp.dark)}`
+                        : `${price} сом / шт`}
+                      {it.oldBox && (canOldBox || canSplit) && (
+                        <span style={{ color: "#d29922", marginLeft: 6 }}>
+                          📦 старая коробка
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                    {splitActive
-                      ? `обычн. ${withPerKg(p, cp.white)} · тём. ${withPerKg(p, cp.dark)}`
-                      : `${price} сом / шт`}
-                    {it.oldBox && (canOldBox || canSplit) && (
-                      <span style={{ color: "#d29922", marginLeft: 6 }}>
-                        📦 старая коробка
-                      </span>
-                    )}
-                  </div>
+
+                  {!splitActive && (
+                    <div
+                      style={{ display: "flex", alignItems: "center", gap: 5 }}
+                    >
+                      <Btn
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setQty(key, qty - 1)}
+                      >
+                        −
+                      </Btn>
+                      <input
+                        value={qty || ""}
+                        onChange={(e) =>
+                          setQty(
+                            key,
+                            parseInt(e.target.value.replace(/\D/g, "")) || 0,
+                          )
+                        }
+                        placeholder="0"
+                        style={{
+                          width: 56,
+                          textAlign: "center",
+                          background: "var(--s1)",
+                          border: "1px solid var(--b1)",
+                          borderRadius: 8,
+                          color: "var(--text)",
+                          padding: "6px 4px",
+                          fontFamily: "JetBrains Mono, monospace",
+                          fontSize: 14,
+                          outline: "none",
+                        }}
+                      />
+                      <Btn
+                        size="sm"
+                        variant="green"
+                        onClick={() => setQty(key, qty + 1)}
+                      >
+                        +
+                      </Btn>
+                    </div>
+                  )}
                 </div>
 
-                {!splitActive && (
+                {showOptions && (
                   <div
-                    style={{ display: "flex", alignItems: "center", gap: 5 }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      gap: 8,
+                      marginTop: 8,
+                    }}
                   >
-                    <Btn
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setQty(p.product, qty - 1)}
-                    >
-                      −
-                    </Btn>
-                    <input
-                      value={qty || ""}
-                      onChange={(e) =>
-                        setQty(
-                          p.product,
-                          parseInt(e.target.value.replace(/\D/g, "")) || 0,
-                        )
-                      }
-                      placeholder="0"
-                      style={{
-                        width: 56,
-                        textAlign: "center",
-                        background: "var(--s1)",
-                        border: "1px solid var(--b1)",
-                        borderRadius: 8,
-                        color: "var(--text)",
-                        padding: "6px 4px",
-                        fontFamily: "JetBrains Mono, monospace",
-                        fontSize: 14,
-                        outline: "none",
-                      }}
-                    />
-                    <Btn
-                      size="sm"
-                      variant="green"
-                      onClick={() => setQty(p.product, qty + 1)}
-                    >
-                      +
-                    </Btn>
+                    {(canOldBox || canSplit) && (
+                      <button
+                        onClick={() => toggleOldBox(key)}
+                        title={
+                          canSplit
+                            ? "Клиент забирает в своей таре — указать отдельно обычное и тёмное"
+                            : `Клиент забирает в своей таре — цена ${p.ownBoxPrice} сом вместо ${p.price} сом`
+                        }
+                        style={optBtn(!!it.oldBox)}
+                      >
+                        📦 старая коробка
+                      </button>
+                    )}
+                    {hasDark && (
+                      <button
+                        onClick={() => toggleDark(key)}
+                        title={`Тёмное печенье: ${p.priceDark} сом вместо ${p.price} сом`}
+                        style={optBtn(!!it.dark)}
+                      >
+                        🍫 Тёмные
+                      </button>
+                    )}
+                    {splitActive && (
+                      <>
+                        {stepper("white", qtyWhite, "обычные")}
+                        {stepper("dark", qtyDark, "тёмные")}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {qty > 0 && (
+                  <TextInput
+                    placeholder="Комментарий к товару..."
+                    value={it.comment || ""}
+                    onChange={(e) => setComment(key, e.target.value)}
+                    style={{ marginTop: 8, fontSize: 12.5 }}
+                  />
+                )}
+
+                {(canOldBox || canSplit || hasDark) && (
+                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    {li === 0 && qty > 0 && (
+                      <button
+                        onClick={() => addLine(p.product)}
+                        title="Тот же товар отдельной строкой — например, одна в своей таре, другая в новой коробке"
+                        style={optBtn(false)}
+                      >
+                        ➕ ещё строка (другая тара / цвет)
+                      </button>
+                    )}
+                    {li > 0 && (
+                      <button
+                        onClick={() => removeLine(key)}
+                        style={{ ...optBtn(false), color: "var(--red)" }}
+                      >
+                        ✕ убрать строку
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
-
-              {showOptions && (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                    gap: 8,
-                    marginTop: 8,
-                  }}
-                >
-                  {(canOldBox || canSplit) && (
-                    <button
-                      onClick={() => toggleOldBox(p.product)}
-                      title={
-                        canSplit
-                          ? "Клиент забирает в своей таре — указать отдельно обычное и тёмное"
-                          : `Клиент забирает в своей таре — цена ${p.ownBoxPrice} сом вместо ${p.price} сом`
-                      }
-                      style={optBtn(!!it.oldBox)}
-                    >
-                      📦 старая коробка
-                    </button>
-                  )}
-                  {hasDark && (
-                    <button
-                      onClick={() => toggleDark(p.product)}
-                      title={`Тёмное печенье: ${p.priceDark} сом вместо ${p.price} сом`}
-                      style={optBtn(!!it.dark)}
-                    >
-                      🍫 Тёмные
-                    </button>
-                  )}
-                  {splitActive && (
-                    <>
-                      {stepper("white", qtyWhite, "обычные")}
-                      {stepper("dark", qtyDark, "тёмные")}
-                    </>
-                  )}
-                </div>
-              )}
-
-              {qty > 0 && (
-                <TextInput
-                  placeholder="Комментарий к товару..."
-                  value={it.comment || ""}
-                  onChange={(e) => setComment(p.product, e.target.value)}
-                  style={{ marginTop: 8, fontSize: 12.5 }}
-                />
-              )}
-            </div>
-          );
-        })}
+            );
+          }),
+        )}
       </div>
     </Modal>
   );
