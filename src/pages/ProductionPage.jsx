@@ -14,6 +14,196 @@ import { S } from "../utils/styles.js";
 import { useData } from "../store/DataContext.jsx";
 import { useUI } from "../store/UIContext.jsx";
 import { updateStatus, setStockOut, setNotFit } from "../services/api.js";
+import SharePdfButton, { esc } from "../components/SharePdfButton.jsx";
+
+/* ── PDF-документы для отправки (склад / водитель / цех) ───────────────── */
+const PDF_TD =
+  "padding:7px 8px;border-bottom:1px solid #dfe3e8;font-size:13px;vertical-align:top;";
+const PDF_TH =
+  "padding:7px 8px;background:#f1f3f6;font-size:11px;text-transform:uppercase;color:#59606b;text-align:left;";
+const nowStr = () => {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+const pdfHead = (title, sub) => `
+  <div style="font-family:Arial,Helvetica,sans-serif;color:#1d232b;">
+  <div style="border-bottom:2px solid #1d232b;padding-bottom:8px;display:flex;justify-content:space-between;align-items:flex-end;">
+    <div style="font-size:21px;font-weight:700;">${esc(title)}</div>
+    <div style="font-size:12px;color:#59606b;">${esc(sub)}</div>
+  </div>`;
+
+// Производство на день: что и сколько сделать
+function buildProductionHtml(date, rows, missingFn, notFitFn) {
+  let total = 0;
+  const body = rows
+    .map((r, i) => {
+      const missing = missingFn(r.date, r.product);
+      const notFit = notFitFn(r.date, r.product);
+      const need = Math.max(0, Number(r.total || 0) - missing - notFit);
+      total += need;
+      const markets = Object.entries(r.markets || {})
+        .map(([m, q]) => `${esc(m)}: <b>${q}</b>`)
+        .join("<br>");
+      const note =
+        missing + notFit > 0
+          ? `<div style="font-size:11px;color:#8a6d00;">заказано ${r.total}${missing ? `, не хватает ${missing}` : ""}${notFit ? `, не поместилось ${notFit}` : ""}</div>`
+          : "";
+      return `<tr>
+        <td style="${PDF_TD}color:#59606b;">${i + 1}</td>
+        <td style="${PDF_TD}font-weight:700;font-size:14px;">${esc(r.product)}${note}</td>
+        <td style="${PDF_TD}text-align:right;font-weight:800;font-size:16px;">${need}</td>
+        <td style="${PDF_TD}font-size:12px;">${markets || "—"}</td>
+        <td style="${PDF_TD}font-size:12px;color:#59606b;">${esc(r.comment || "")}</td></tr>`;
+    })
+    .join("");
+  return (
+    pdfHead(`Производство · ${date}`, `Сформировано ${nowStr()}`) +
+    `<table style="width:100%;border-collapse:collapse;margin-top:12px;">
+      <tr><th style="${PDF_TH}">№</th><th style="${PDF_TH}">Товар</th>
+      <th style="${PDF_TH};text-align:right;">Сделать, шт</th>
+      <th style="${PDF_TH}">По рынкам</th><th style="${PDF_TH}">Комментарий</th></tr>
+      ${body}
+      <tr><td style="${PDF_TD}" colspan="2"><b>Всего</b></td>
+      <td style="${PDF_TD}text-align:right;font-weight:800;font-size:16px;">${total}</td>
+      <td style="${PDF_TD}" colspan="2"></td></tr>
+    </table></div>`
+  );
+}
+
+// Развозка на день. kind: "driver" (по клиентам, адреса) | "warehouse" (сводка + сборка)
+function buildDeliveryHtml(
+  date,
+  groups,
+  stockOutMap,
+  notFitMap,
+  phoneByClient,
+  kind,
+) {
+  const sorted = [...groups].sort(
+    (a, b) =>
+      String(a.market).localeCompare(String(b.market), "ru") ||
+      String(a.client).localeCompare(String(b.client), "ru"),
+  );
+  const lines = (g) => {
+    const items = [];
+    const skipped = [];
+    (g.rows || []).forEach((r) => {
+      const qty = Number(r.paidQuantity ?? r.quantity ?? 0);
+      const key = `${g.oid}::${r.product}`;
+      const missing = Math.min(qty, Number(stockOutMap.get(key) || 0));
+      const notFit = Math.min(
+        Math.max(0, qty - missing),
+        Number(notFitMap?.get(key) || 0),
+      );
+      const q = Math.max(0, qty - missing - notFit);
+      const tag = r.oldBox
+        ? `своя тара${r.oldBoxColor === "dark" ? ", тёмные" : r.oldBoxColor === "white" ? ", обычные" : ""}`
+        : r.oldBoxColor === "dark"
+          ? "тёмные"
+          : "";
+      if (q > 0)
+        items.push({
+          product: r.product,
+          qty: q,
+          tag,
+          comment: r.comment || "",
+        });
+      if (missing + notFit > 0)
+        skipped.push({ product: r.product, n: missing + notFit });
+    });
+    return { items, skipped };
+  };
+
+  const block = (g, withAddress) => {
+    const { items, skipped } = lines(g);
+    if (!items.length && !skipped.length) return "";
+    const boxes = items.reduce((s, i) => s + i.qty, 0);
+    const phone =
+      phoneByClient[
+        String(g.client || "")
+          .trim()
+          .toLowerCase()
+      ] || "";
+    const done = g.status === "Доставлен";
+    return `<div class="keep" style="border:1.5px solid #1d232b;border-radius:8px;padding:10px 12px;margin:12px 3px 0 1px;${done ? "opacity:.6;" : ""}">
+      <div style="display:flex;justify-content:space-between;gap:10px;">
+        <div style="font-size:16px;font-weight:800;">☐ ${esc(g.client)}${done ? " · ✔ доставлен" : ""}</div>
+        <div style="font-size:12px;color:#59606b;white-space:nowrap;">${esc(g.market)}</div>
+      </div>
+      ${withAddress ? `<div style="font-size:13px;margin-top:3px;">📍 ${esc(g.address || "адрес не указан")}${phone ? ` · 📞 ${esc(phone)}` : ""}</div>` : ""}
+      <table style="width:100%;border-collapse:collapse;margin-top:8px;">
+        ${items
+          .map(
+            (
+              i,
+            ) => `<tr><td style="${PDF_TD}">${esc(i.product)}${i.tag ? ` <span style="font-size:11px;color:#8a6d00;">(${esc(i.tag)})</span>` : ""}${i.comment ? `<div style="font-size:11px;color:#59606b;">${esc(i.comment)}</div>` : ""}</td>
+            <td style="${PDF_TD}text-align:right;font-weight:800;font-size:16px;white-space:nowrap;">${i.qty} шт</td></tr>`,
+          )
+          .join("")}
+        <tr><td style="${PDF_TD}border-bottom:none;"><b>Всего коробок</b></td>
+        <td style="${PDF_TD}border-bottom:none;text-align:right;font-weight:800;">${boxes}</td></tr>
+      </table>
+      ${skipped.length ? `<div style="font-size:11.5px;color:#cf222e;margin-top:4px;">Не везти: ${skipped.map((x) => `${esc(x.product)} — ${x.n}`).join(", ")}</div>` : ""}
+    </div>`;
+  };
+
+  if (kind === "driver") {
+    return (
+      pdfHead(`Развозка · ${date}`, `Сформировано ${nowStr()}`) +
+      `<div style="font-size:12px;color:#59606b;margin-top:6px;">Заказов: ${sorted.length}</div>` +
+      sorted.map((g) => block(g, true)).join("") +
+      "</div>"
+    );
+  }
+
+  // склад: общая сводка по товарам + что собрать для каждого клиента
+  const totals = {};
+  sorted.forEach((g) =>
+    lines(g).items.forEach((i) => {
+      const k = i.product + (i.tag ? ` (${i.tag})` : "");
+      totals[k] = (totals[k] || 0) + i.qty;
+    }),
+  );
+  const totalBoxes = Object.values(totals).reduce((s, n) => s + n, 0);
+  return (
+    pdfHead(`Склад · отгрузка ${date}`, `Сформировано ${nowStr()}`) +
+    `<div style="font-size:12px;color:#59606b;margin-top:6px;">Всего отгрузить</div>
+    <table style="width:100%;border-collapse:collapse;margin-top:4px;">
+      ${Object.entries(totals)
+        .sort((a, b) => a[0].localeCompare(b[0], "ru"))
+        .map(
+          ([k, n]) => `<tr><td style="${PDF_TD}">☐ ${esc(k)}</td>
+          <td style="${PDF_TD}text-align:right;font-weight:800;font-size:16px;">${n} шт</td></tr>`,
+        )
+        .join("")}
+      <tr><td style="${PDF_TD}"><b>Итого</b></td><td style="${PDF_TD}text-align:right;font-weight:800;">${totalBoxes} шт</td></tr>
+    </table>
+    <div style="font-size:12px;color:#59606b;margin-top:16px;">Собрать по клиентам</div>` +
+    sorted.map((g) => block(g, false)).join("") +
+    "</div>"
+  );
+}
+
+// Картинка товара по названию — без учёта регистра и лишних пробелов
+// (в заказе "Чай " и в каталоге "чай" — один и тот же товар).
+const imgKey = (s) =>
+  String(s || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+function imgOf(map, product) {
+  if (map[product]) return map[product];
+  if (!map.__norm) {
+    Object.defineProperty(map, "__norm", {
+      value: Object.fromEntries(
+        Object.entries(map).map(([k, v]) => [imgKey(k), v]),
+      ),
+      enumerable: false,
+    });
+  }
+  return map.__norm[imgKey(product)] || "";
+}
 
 const norm = (s) =>
   String(s || "")
@@ -683,6 +873,20 @@ function ProductionView({
                 >
                   {status.label}
                 </span>
+                <span style={{ marginLeft: "auto" }}>
+                  <SharePdfButton
+                    label="📤 PDF"
+                    filename={`Производство ${date}.pdf`}
+                    getHtml={() =>
+                      buildProductionHtml(
+                        date,
+                        rows,
+                        missingQtyAgg,
+                        notFitQtyAgg,
+                      )
+                    }
+                  />
+                </span>
                 <span style={{ fontSize: 12, color: "var(--muted)" }}>
                   {rows.length} товар(ов) ·{" "}
                   {dayMissing + dayNotFit > 0 ? (
@@ -736,7 +940,10 @@ function ProductionView({
                             background: isOpen ? `${color}14` : "transparent",
                           }}
                         >
-                          <ProductThumb src={priceMap[r.product]} size={56} />
+                          <ProductThumb
+                            src={imgOf(priceMap, r.product)}
+                            size={56}
+                          />
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div
                               style={{
@@ -854,7 +1061,7 @@ function ProductionView({
                                     {isOpen ? "🧾▾" : "🧾▸"}
                                   </span>
                                   <ProductThumb
-                                    src={priceMap[r.product]}
+                                    src={imgOf(priceMap, r.product)}
                                     size={30}
                                   />
                                   <b>{r.product}</b>
@@ -980,6 +1187,14 @@ function DeliveryView({
     });
     return m;
   }, [prices]);
+
+  const phoneByClient = useMemo(() => {
+    const m = {};
+    (Array.isArray(clients) ? clients : []).forEach((c) => {
+      if (c.name) m[norm(c.name)] = c.phone || "";
+    });
+    return m;
+  }, [clients]);
 
   const addressByClient = useMemo(() => {
     const m = {};
@@ -1114,6 +1329,43 @@ function DeliveryView({
                 >
                   {rows.length} заказ(ов)
                 </span>
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    display: "flex",
+                    gap: 6,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <SharePdfButton
+                    label="📤 Водителю"
+                    filename={`Развозка ${date}.pdf`}
+                    getHtml={() =>
+                      buildDeliveryHtml(
+                        date,
+                        rows,
+                        stockOutMap,
+                        notFitMap,
+                        phoneByClient,
+                        "driver",
+                      )
+                    }
+                  />
+                  <SharePdfButton
+                    label="📤 Складу"
+                    filename={`Склад ${date}.pdf`}
+                    getHtml={() =>
+                      buildDeliveryHtml(
+                        date,
+                        rows,
+                        stockOutMap,
+                        notFitMap,
+                        phoneByClient,
+                        "warehouse",
+                      )
+                    }
+                  />
+                </span>
               </div>
               <div
                 style={
@@ -1127,11 +1379,13 @@ function DeliveryView({
                     : {
                         // на компьютере — несколько карточек в ряд, а не
                         // одна растянутая на весь экран
-                        padding: 18,
+                        padding: 14,
                         display: "grid",
+                        // 3–4 карточки в ряд: ширина колонки ~24% экрана,
+                        // но не уже 240 и не шире 340 пикселей
                         gridTemplateColumns:
-                          "repeat(auto-fill, minmax(380px, 1fr))",
-                        gap: 16,
+                          "repeat(auto-fill, minmax(clamp(240px, 24%, 340px), 1fr))",
+                        gap: 12,
                         alignItems: "start",
                       }
                 }
@@ -1157,13 +1411,16 @@ function DeliveryView({
                     <div
                       key={r.oid}
                       style={{
-                        background: marketColors[r.market] || "var(--s2)",
-                        border: `2px solid ${delivered ? "var(--green)" : "var(--b1)"}`,
+                        // зелёная — доставлено, красная — ещё не доставлено
+                        background: delivered
+                          ? "rgba(63,185,80,.13)"
+                          : "rgba(248,81,73,.11)",
+                        border: `2px solid ${delivered ? "var(--green)" : "var(--red)"}`,
                         borderRadius: 14,
                         boxShadow: isMobile
                           ? "none"
                           : "0 2px 10px rgba(0,0,0,.08)",
-                        padding: isMobile ? "14px 12px" : "16px 16px",
+                        padding: isMobile ? "14px 12px" : "12px 12px",
                         opacity: delivered ? 0.85 : 1,
                       }}
                     >
@@ -1250,7 +1507,7 @@ function DeliveryView({
                                 }}
                               >
                                 <ProductThumb
-                                  src={imageByProduct[it.product]}
+                                  src={imgOf(imageByProduct, it.product)}
                                   size={isMobile ? 64 : 48}
                                 />
                                 <div style={{ flex: 1, minWidth: 0 }}>

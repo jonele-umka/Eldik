@@ -29,6 +29,7 @@ import {
 import OpeningBalanceModal from "../components/OpeningBalanceModal.jsx";
 import CreateOrderModal from "../components/CreateOrderModal.jsx";
 import OrderDetailModal from "../components/OrderDetailModal.jsx";
+import StatementModal from "../components/StatementModal.jsx";
 import { useData, AFFECTS } from "../store/DataContext.jsx";
 import { useUI } from "../store/UIContext.jsx";
 import {
@@ -238,6 +239,7 @@ export default function ClientDetailPage({
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [statementOpen, setStatementOpen] = useState(false);
   const [openOrder, setOpenOrder] = useState(null);
   const [expandedMonths, setExpandedMonths] = useState({});
 
@@ -664,6 +666,9 @@ export default function ClientDetailPage({
     return [...map.values()].sort((a, b) => (a.key < b.key ? 1 : -1));
   }, [groups, stockOutMap, notFitMap]);
 
+  // Долг только по заказам — после всех оплат, без начального остатка
+  const ordersDebt = monthSections.reduce((sum, m) => sum + m.debt, 0);
+
   return (
     <>
       <button
@@ -719,6 +724,12 @@ export default function ClientDetailPage({
         <KPI label="Через зачёт" value={fmtM(offsetSum)} color="#a371f7" />
 
         <KPI
+          label="Долг по заказам"
+          value={fmtM(ordersDebt)}
+          color={ordersDebt > 0 ? "var(--red)" : "var(--green)"}
+        />
+
+        <KPI
           label="Текущий долг"
           value={fmtM(debt)}
           color={debt > 0 ? "var(--red)" : "var(--green)"}
@@ -743,6 +754,9 @@ export default function ClientDetailPage({
           }}
         >
           📌 Начальный остаток
+        </Btn>
+        <Btn variant="ghost" onClick={() => setStatementOpen(true)}>
+          📄 Акт сверки / отправить
         </Btn>
       </Toolbar>
 
@@ -1050,6 +1064,23 @@ export default function ClientDetailPage({
           fixedName={client}
           entry={form.entry}
           onClose={() => setModal(null)}
+        />
+      )}
+
+      {statementOpen && (
+        <StatementModal
+          open
+          onClose={() => setStatementOpen(false)}
+          client={client}
+          market={clientMarket}
+          groups={groups}
+          payments={directPayments}
+          offsets={clientOffsets}
+          returns={clientReturns}
+          opening={clientOpening}
+          stockOutMap={stockOutMap}
+          notFitMap={notFitMap}
+          totalDebt={debt}
         />
       )}
 

@@ -12,6 +12,19 @@ import {
 } from "../components/Form.jsx";
 import OpeningBalanceModal from "../components/OpeningBalanceModal.jsx";
 
+// Сумма своим цветом (MoneyCell умеет только зелёный/красный)
+const Colored = ({ n, color }) => (
+  <span
+    style={{
+      fontFamily: "JetBrains Mono, monospace",
+      fontSize: 12.5,
+      color,
+    }}
+  >
+    {n === null || n === undefined ? "—" : fmtM(n)}
+  </span>
+);
+
 export default function DebtorsPage({ data, clients, search, onSelectClient }) {
   const arr = data || [];
   const clientsArr = Array.isArray(clients) ? clients : [];
@@ -207,11 +220,12 @@ export default function DebtorsPage({ data, clients, search, onSelectClient }) {
             {[
               "Клиент",
               "Рынок",
-              "Общий долг",
-              "Долг по новым заказам",
+              "Заказано",
               "Оплачено",
               "Взаимозачёт",
+              "Осталось по заказам",
               "Нач. остаток",
+              "Общий долг",
               "Прогресс",
             ].map((h) => (
               <TH key={h}>{h}</TH>
@@ -222,7 +236,7 @@ export default function DebtorsPage({ data, clients, search, onSelectClient }) {
           {filtered.length === 0 ? (
             <tr>
               <td
-                colSpan={8}
+                colSpan={9}
                 style={{
                   textAlign: "center",
                   padding: 40,
@@ -236,10 +250,11 @@ export default function DebtorsPage({ data, clients, search, onSelectClient }) {
             </tr>
           ) : (
             filtered.map((r, i) => {
-              const pct = Math.round(
-                (Number(r.paid || 0) / Math.max(Number(r.ordered || 0), 1)) *
-                  100,
-              );
+              const ord = Number(r.ordered || 0);
+              const pct =
+                ord > 0
+                  ? Math.min(100, Math.round((Number(r.paid || 0) / ord) * 100))
+                  : 0;
               const barPct = Math.round((Number(r.debt || 0) / maxDebt) * 100);
               return (
                 <TR
@@ -265,19 +280,24 @@ export default function DebtorsPage({ data, clients, search, onSelectClient }) {
                     {marketByClient[norm(r.client)] || "—"}
                   </TD>
                   <TD>
-                    <MoneyCell n={r.debt} pos={false} />
-                  </TD>
-                  <TD>
-                    <MoneyCell n={r.newOrdersDebt ?? r.debt} pos={false} />
+                    <MoneyCell n={r.ordered} />
                   </TD>
                   <TD>
                     <MoneyCell n={r.paid} pos />
                   </TD>
                   <TD>
-                    <MoneyCell n={r.offsets} pos />
+                    <Colored n={r.offsets} color="#a371f7" />
+                  </TD>
+                  <TD>
+                    <Colored n={r.newOrdersDebt ?? r.debt} color="#d29922" />
                   </TD>
                   <TD>
                     <MoneyCell n={r.openingBalance} pos={false} />
+                  </TD>
+                  <TD>
+                    <b>
+                      <MoneyCell n={r.debt} pos={false} />
+                    </b>
                   </TD>
                   <TD>
                     <div
