@@ -554,6 +554,8 @@ export default function ClientDetailPage({
     totalSum - retSum - paidSum - offsetSum + openingSum - discountSum;
 
   const debt = Math.max(0, calculatedDebt);
+  // Переплата: клиент заплатил больше, чем должен — это уже НАШ долг ему
+  const weOwe = Math.max(0, -calculatedDebt);
 
   // =========================
   // ЕДИНАЯ ЛЕНТА
@@ -734,6 +736,14 @@ export default function ClientDetailPage({
           value={fmtM(debt)}
           color={debt > 0 ? "var(--red)" : "var(--green)"}
         />
+
+        {weOwe > 0 && (
+          <KPI
+            label="Переплата — мы должны клиенту"
+            value={fmtM(weOwe)}
+            color="#d29922"
+          />
+        )}
       </div>
 
       <Toolbar>
