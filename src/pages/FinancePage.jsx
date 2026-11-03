@@ -300,6 +300,48 @@ export default function FinancePage({
   const curVolume = volumePeriods[curKey] || 0;
   const akylbekNetProfit = allBalance - urmatTotal - amanCut;
 
+  // Пассивный доход Урмата: 5% от ПРОДАЖ (не от полученных денег) по этим
+  // товарам — у ВСЕХ клиентов и рынков, не только «Дордой-фуд». Считаем по
+  // дате доставки, периоды те же 16–15; из продаж вычтены возвраты,
+  // «не хватает» и «не поместилось».
+  const PASSIVE_PRODUCTS = ["Сникерс", "Бруни", "Курабье", "Заварное"];
+  const PASSIVE_RATE = 0.05;
+  const passiveProduct = (name) =>
+    PASSIVE_PRODUCTS.find((p) => normClient(name).includes(p.toLowerCase()));
+  const returnsByOrderProduct = {};
+  (Array.isArray(store.returns) ? store.returns : []).forEach((r) => {
+    if (!r.orderId || !r.product) return;
+    const k = `${r.orderId}::${r.product}`;
+    returnsByOrderProduct[k] = (returnsByOrderProduct[k] || 0) + Number(r.amount || 0);
+  });
+  const passivePeriods = {}; // период -> { "Сникерс": сумма, ... }
+  orderGroups.forEach((g) => {
+    const t = parseDay(g.deliveryDate || g.orderDate);
+    if (!t) return;
+    const key = periodKeyOf(t);
+    g.rows.forEach((r) => {
+      const prod = passiveProduct(r.product);
+      if (!prod) return;
+      const qty = Number(r.paidQuantity ?? r.quantity ?? 0);
+      const sk = `${g.oid}::${r.product}`;
+      const missing = Math.min(qty, Number(stockOutMap.get(sk) || 0));
+      const notFit = Math.min(Math.max(0, qty - missing), Number(notFitMap.get(sk) || 0));
+      const sold = Math.max(
+        0,
+        (qty - missing - notFit) * Number(r.price || 0) - (returnsByOrderProduct[sk] || 0),
+      );
+      if (!passivePeriods[key]) passivePeriods[key] = {};
+      passivePeriods[key][prod] = (passivePeriods[key][prod] || 0) + sold;
+    });
+  });
+  const passiveSum = (k) =>
+    Object.values(passivePeriods[k] || {}).reduce((a, b) => a + b, 0);
+  const passiveKeys = Object.keys(passivePeriods).sort().reverse();
+  const passiveTotalSold = passiveKeys.reduce((s, k) => s + passiveSum(k), 0);
+  const passiveTotal = passiveTotalSold * PASSIVE_RATE;
+  const curPassiveSold = passiveSum(curKey);
+  const curPassive = curPassiveSold * PASSIVE_RATE;
+
   // Клиенты со скидкой 3%: периоды (первый — 16 сен – 16 окт включительно, дальше 16-е – 15-е), по каждому периоду —
   // сколько заказано, сумма после скидки и сколько оплачено.
   const kPeriodKey = (t, startDay) => {
@@ -337,23 +379,8 @@ export default function FinancePage({
     return kLabel(key, dc.startDay, dc.endDay);
   };
   const discountClients = [
-    {
-      match: "кубаныч",
-      title: "Кубаныч ДФ",
-      discount: DISCOUNT,
-      startDay: 16,
-      endDay: 15,
-      since: 20260916,
-    },
-    {
-      match: "элдияр",
-      title: "Элдияр ДФ",
-      discount: DISCOUNT,
-      startDay: 16,
-      endDay: 15,
-      since: 20260916,
-      irregular: true,
-    },
+    { match: "кубаныч", title: "Кубаныч ДФ", discount: DISCOUNT, startDay: 16, endDay: 15, since: 20260916 },
+    { match: "элдияр", title: "Элдияр ДФ", discount: DISCOUNT, startDay: 16, endDay: 15, since: 20260916, irregular: true },
     // Бартер: «оплачено» — это приходы товаров от Украины (считаются как оплата)
     {
       match: "украина",
@@ -363,69 +390,57 @@ export default function FinancePage({
       endDay: 14,
       barter: true,
     },
-  ].map(
-    ({
-      match,
+  ].map(({ match, title, discount, startDay, endDay, special, since, irregular, barter }) => {
+    const periods = {};
+    const row = (k) => periods[k] || (periods[k] = { orders: 0, paid: 0 });
+    let realName = "";
+    let totOrders = 0;
+    let totPaid = 0;
+    orderGroups.forEach((g) => {
+      if (!normClient(g.client).includes(match)) return;
+      const t = parseDay(g.deliveryDate || g.orderDate);
+      if (!t) return;
+      if (since && t.yy * 10000 + t.mm * 100 + t.dd < since) return;
+      if (!realName) realName = g.client;
+      totOrders += g.effective;
+      row(kKeyOf(t, startDay, special)).orders += g.effective;
+    });
+    (Array.isArray(payments) ? payments : []).forEach((p) => {
+      if (!normClient(p.client).includes(match)) return;
+      const t = parseDay(p.paymentDate);
+      if (!t) return;
+      if (since && t.yy * 10000 + t.mm * 100 + t.dd < since) return;
+      totPaid += Number(p.amount || 0);
+      row(kKeyOf(t, startDay, special)).paid += Number(p.amount || 0);
+    });
+    // Переплата прошлого периода переходит в следующий и уменьшает его остаток.
+    let carry = 0;
+    Object.keys(periods)
+      .sort()
+      .forEach((k) => {
+        const r = periods[k];
+        r.carryIn = carry;
+        r.diff = r.orders * (1 - discount) - r.paid - carry;
+        carry = r.diff < 0 ? -r.diff : 0;
+      });
+    const keys = Object.keys(periods).sort().reverse();
+    const orders_ = totOrders;
+    const paid = totPaid;
+    return {
       title,
+      periods,
+      keys,
+      orders: orders_,
+      paid,
       discount,
       startDay,
       endDay,
       special,
-      since,
       irregular,
       barter,
-    }) => {
-      const periods = {};
-      const row = (k) => periods[k] || (periods[k] = { orders: 0, paid: 0 });
-      let realName = "";
-      let totOrders = 0;
-      let totPaid = 0;
-      orderGroups.forEach((g) => {
-        if (!normClient(g.client).includes(match)) return;
-        const t = parseDay(g.deliveryDate || g.orderDate);
-        if (!t) return;
-        if (since && t.yy * 10000 + t.mm * 100 + t.dd < since) return;
-        if (!realName) realName = g.client;
-        totOrders += g.effective;
-        row(kKeyOf(t, startDay, special)).orders += g.effective;
-      });
-      (Array.isArray(payments) ? payments : []).forEach((p) => {
-        if (!normClient(p.client).includes(match)) return;
-        const t = parseDay(p.paymentDate);
-        if (!t) return;
-        if (since && t.yy * 10000 + t.mm * 100 + t.dd < since) return;
-        totPaid += Number(p.amount || 0);
-        row(kKeyOf(t, startDay, special)).paid += Number(p.amount || 0);
-      });
-      // Переплата прошлого периода переходит в следующий и уменьшает его остаток.
-      let carry = 0;
-      Object.keys(periods)
-        .sort()
-        .forEach((k) => {
-          const r = periods[k];
-          r.carryIn = carry;
-          r.diff = r.orders * (1 - discount) - r.paid - carry;
-          carry = r.diff < 0 ? -r.diff : 0;
-        });
-      const keys = Object.keys(periods).sort().reverse();
-      const orders_ = totOrders;
-      const paid = totPaid;
-      return {
-        title,
-        periods,
-        keys,
-        orders: orders_,
-        paid,
-        discount,
-        startDay,
-        endDay,
-        special,
-        irregular,
-        barter,
-        realName: realName || title,
-      };
-    },
-  );
+      realName: realName || title,
+    };
+  });
 
   const sectionStyle = { ...S.card, marginBottom: 20 };
   const sectionHeader = {
@@ -556,6 +571,82 @@ export default function FinancePage({
         </div>
       </div>
 
+      {/* ===== ПАССИВНЫЙ ДОХОД ===== */}
+      <SectionTitle
+        icon="🌱"
+        color="var(--green)"
+        title="ПАССИВНЫЙ ДОХОД — 5% С ПРОДАЖ"
+        subtitle="От продаж Сникерс, Бруни, Курабье и Заварное — у всех клиентов, от проданного, а не от полученных денег"
+      />
+      <div
+        style={{
+          ...S.card,
+          marginBottom: 20,
+          padding: "16px 18px",
+          borderTop: "3px solid var(--green)",
+        }}
+      >
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 24, marginBottom: 12 }}>
+          <MiniStat
+            label={`Мои 5% · ${periodLabel(curKey)}`}
+            value={curPassive}
+            color="var(--green)"
+            bold
+            sub={`всего: ${fmtM(passiveTotal)}`}
+          />
+          <MiniStat
+            label="Продано за этот период"
+            value={curPassiveSold}
+            color="var(--accent)"
+            sub={`всего: ${fmtM(passiveTotalSold)}`}
+          />
+        </div>
+        {passiveKeys.length === 0 ? (
+          <div style={{ fontSize: 13, color: "var(--muted)" }}>
+            Продаж этих товаров пока нет.
+          </div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: "var(--s2)" }}>
+                  {[
+                    "Период (с 16 по 15)",
+                    ...PASSIVE_PRODUCTS,
+                    "Продано всего",
+                    "5%",
+                  ].map((h) => (
+                    <TH key={h}>{h}</TH>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {passiveKeys.map((k) => (
+                  <TR key={k}>
+                    <TD>{periodLabel(k)}</TD>
+                    {PASSIVE_PRODUCTS.map((pn) => (
+                      <TD key={pn}>{fmtM(passivePeriods[k][pn] || 0)}</TD>
+                    ))}
+                    <TD>{fmtM(passiveSum(k))}</TD>
+                    <TD>
+                      <b style={{ color: "var(--green)" }}>
+                        {fmtM(passiveSum(k) * PASSIVE_RATE)}
+                      </b>
+                    </TD>
+                  </TR>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div style={{ fontSize: 11.5, color: "var(--muted2)", marginTop: 10 }}>
+          Считается от стоимости проданного по дате доставки (все клиенты и
+          рынки, включая Амана и Украину), без скидки 3%. Возвраты, «не
+          хватает» и «не поместилось» вычтены. Названия товаров ищутся по
+          слову, например «Курабье 1 кг» тоже попадёт.
+        </div>
+      </div>
+
       {/* ===== ДЕНЬГИ КЛИЕНТОВ ===== */}
       {discountClients.some((dc) => dc.keys.length > 0) && (
         <SectionTitle
@@ -635,40 +726,38 @@ export default function FinancePage({
                         <TD>{fmtM(r.orders)}</TD>
                         {dc.discount ? <TD>{fmtM(due)}</TD> : null}
                         {dc.irregular ? null : <TD>{fmtM(r.paid)}</TD>}
-                        {dc.irregular ? null : (
-                          <TD>
-                            <span
+                        {dc.irregular ? null : <TD>
+                          <span
+                            style={{
+                              color:
+                                diff > 0
+                                  ? "var(--red)"
+                                  : diff < 0
+                                    ? "var(--green)"
+                                    : "inherit",
+                              fontWeight: 600,
+                            }}
+                          >
+                            {diff > 0
+                              ? "должен "
+                              : diff < 0
+                                ? "переплата "
+                                : ""}
+                            {fmtM(Math.abs(diff))}
+                          </span>
+                          {r.carryIn > 0 && (
+                            <div
                               style={{
-                                color:
-                                  diff > 0
-                                    ? "var(--red)"
-                                    : diff < 0
-                                      ? "var(--green)"
-                                      : "inherit",
-                                fontWeight: 600,
+                                fontSize: 11,
+                                color: "var(--muted)",
+                                marginTop: 2,
                               }}
                             >
-                              {diff > 0
-                                ? "должен "
-                                : diff < 0
-                                  ? "переплата "
-                                  : ""}
-                              {fmtM(Math.abs(diff))}
-                            </span>
-                            {r.carryIn > 0 && (
-                              <div
-                                style={{
-                                  fontSize: 11,
-                                  color: "var(--muted)",
-                                  marginTop: 2,
-                                }}
-                              >
-                                учтена переплата прошлого периода{" "}
-                                {fmtM(r.carryIn)}
-                              </div>
-                            )}
-                          </TD>
-                        )}
+                              учтена переплата прошлого периода{" "}
+                              {fmtM(r.carryIn)}
+                            </div>
+                          )}
+                        </TD>}
                       </TR>
                     );
                   })}
@@ -736,14 +825,12 @@ export default function FinancePage({
             <div
               style={{ fontSize: 11.5, color: "var(--muted2)", marginTop: 10 }}
             >
-              Период — по дате доставки.
-              {!dc.barter &&
+              Период — по дате доставки.{!dc.barter &&
                 (dc.irregular
                   ? " Платит нерегулярно, поэтому оплата показана одним итогом, а не по периодам."
-                  : " Периоды с 16-го по 15-е. Переплата переходит в следующий период.")}{" "}
-              Сумма заказа — как «К оплате» в карточке: за вычетом возвратов,
-              «нет в наличии» и «не поместилось». Начальный остаток не
-              учитывается.
+                  : " Периоды с 16-го по 15-е. Переплата переходит в следующий период.")} Сумма заказа — как «К оплате» в
+              карточке: за вычетом возвратов, «нет в наличии» и «не
+              поместилось». Начальный остаток не учитывается.
               {dc.barter &&
                 " Оплата — приходы товаров от Украины по дате прихода; если привезли больше, чем заказали, или наоборот, разница видна в колонке «Остаток»."}
             </div>
