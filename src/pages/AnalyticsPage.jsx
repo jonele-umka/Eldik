@@ -8,6 +8,7 @@ import {
 } from "../components/Charts.jsx";
 import { KPI, TR, TD, TH, MoneyCell } from "../components/UI.jsx";
 import { S } from "../utils/styles.js";
+import AnalyticsTop from "../components/AnalyticsTop.jsx";
 
 const MONTHS = [
   "Январь",
@@ -55,7 +56,14 @@ const GEN = [
 const pad = (n) => String(n).padStart(2, "0");
 const pctText = (a, b) => Math.round((Math.abs(a - b) / b) * 100);
 
-export default function AnalyticsPage({ analytics, months, expenses, orders }) {
+export default function AnalyticsPage({
+  analytics,
+  months,
+  expenses,
+  orders,
+  prices,
+  onSelectClient,
+}) {
   const [range, setRange] = useState(30);
   const arr = analytics || [];
   const mon = months || [];
@@ -281,12 +289,6 @@ export default function AnalyticsPage({ analytics, months, expenses, orders }) {
   const marketBars = sorted
     .slice(0, 6)
     .map((r) => ({ label: r.market, value: Number(r.revenue || 0) }));
-  const productBars = topProducts
-    .slice(0, 8)
-    .map((p) => ({ label: p.name, value: p.revenue }));
-  const clientBars = topClients
-    .slice(0, 8)
-    .map((c) => ({ label: c.name, value: c.revenue }));
 
   const sectionStyle = { ...S.card, marginBottom: 20 };
   const sectionHeader = {
@@ -475,27 +477,15 @@ export default function AnalyticsPage({ analytics, months, expenses, orders }) {
             {marketBars.length ? <HBarChart data={marketBars} /> : <Empty />}
           </div>
         </div>
-        <div style={{ ...S.card, minWidth: 0 }}>
-          <div style={sectionHeader}>Топ товары</div>
-          <div style={{ padding: 14 }}>
-            {productBars.length ? (
-              <HBarChart data={productBars} color="var(--purple)" />
-            ) : (
-              <Empty />
-            )}
-          </div>
-        </div>
-        <div style={{ ...S.card, minWidth: 0 }}>
-          <div style={sectionHeader}>Топ клиенты</div>
-          <div style={{ padding: 14 }}>
-            {clientBars.length ? (
-              <HBarChart data={clientBars} color="var(--green)" />
-            ) : (
-              <Empty />
-            )}
-          </div>
-        </div>
       </div>
+
+      <AnalyticsTop
+        products={topProducts}
+        clients={topClients}
+        orders={orders}
+        prices={prices}
+        onSelectClient={onSelectClient}
+      />
 
       <div style={sectionStyle}>
         <div style={sectionHeader}>По рынкам</div>
@@ -663,100 +653,6 @@ export default function AnalyticsPage({ analytics, months, expenses, orders }) {
                     </TR>
                   );
                 })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* ── Топ товары ────────────────────────────────────────────────────── */}
-      <div style={sectionStyle}>
-        <div style={sectionHeader}>Топ товары</div>
-        <div style={{ overflowX: "auto" }}>
-          <table
-            style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}
-          >
-            <thead>
-              <tr style={{ background: "var(--s2)" }}>
-                {["#", "Товар", "Кол-во", "Приход"].map((h) => (
-                  <TH key={h}>{h}</TH>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {topProducts.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={4}
-                    style={{
-                      textAlign: "center",
-                      padding: 40,
-                      color: "var(--muted)",
-                    }}
-                  >
-                    Нет данных
-                  </td>
-                </tr>
-              ) : (
-                topProducts.map((p, i) => (
-                  <TR key={p.name}>
-                    <TD style={{ color: "var(--muted)" }}>{i + 1}</TD>
-                    <TD>
-                      <b>{p.name}</b>
-                    </TD>
-                    <TD>{p.qty.toLocaleString()}</TD>
-                    <TD>
-                      <MoneyCell n={p.revenue} pos={true} />
-                    </TD>
-                  </TR>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* ── Топ клиенты ───────────────────────────────────────────────────── */}
-      <div style={sectionStyle}>
-        <div style={sectionHeader}>Топ клиенты</div>
-        <div style={{ overflowX: "auto" }}>
-          <table
-            style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}
-          >
-            <thead>
-              <tr style={{ background: "var(--s2)" }}>
-                {["#", "Клиент", "Заказов", "Приход"].map((h) => (
-                  <TH key={h}>{h}</TH>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {topClients.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={4}
-                    style={{
-                      textAlign: "center",
-                      padding: 40,
-                      color: "var(--muted)",
-                    }}
-                  >
-                    Нет данных
-                  </td>
-                </tr>
-              ) : (
-                topClients.map((c, i) => (
-                  <TR key={c.name}>
-                    <TD style={{ color: "var(--muted)" }}>{i + 1}</TD>
-                    <TD>
-                      <b>{c.name}</b>
-                    </TD>
-                    <TD>{c.orders.toLocaleString()}</TD>
-                    <TD>
-                      <MoneyCell n={c.revenue} pos={true} />
-                    </TD>
-                  </TR>
-                ))
               )}
             </tbody>
           </table>

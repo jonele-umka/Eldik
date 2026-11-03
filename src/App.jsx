@@ -615,6 +615,8 @@ function Shell() {
             months={data.months}
             expenses={data.expenses}
             orders={data.orders}
+            prices={data.prices}
+            onSelectClient={(name) => openClientDetail(name, "analytics")}
           />
         );
       case "production":
