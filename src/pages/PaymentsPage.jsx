@@ -41,16 +41,31 @@ export default function PaymentsPage({ data, search }) {
   const [editing, setEditing] = useState(null); // { id, paymentDate, amount }
   const [saving, setSaving] = useState(false);
 
+  // Бартер (OFFSET:…) — это взаимозачёты, а не оплаты, их показываем на
+  // странице «Взаимозачёты». Иначе они забивают первые страницы списка.
   const filtered = useMemo(() => {
-    let r = filterSearch(arr, ["client", "market"], search);
+    let r = arr.filter((x) => !String(x.orderId || "").startsWith("OFFSET:"));
+    r = filterSearch(r, ["client", "market"], search);
     if (market) r = r.filter((x) => x.market === market);
     if (month) r = r.filter((x) => getMonth(x.paymentDate) === month);
-    return [...r].reverse();
+    const key = (x) => {
+      const [d, t = ""] = String(x.paymentDate || "").split(" ");
+      const p = d.split(".");
+      return p.length === 3
+        ? `${p[2]}${p[1].padStart(2, "0")}${p[0].padStart(2, "0")} ${t}`
+        : "";
+    };
+    return [...r].sort((a, b) => key(b).localeCompare(key(a)));
   }, [arr, search, market, month]);
 
   const total = filtered.reduce((s, r) => s + Number(r.amount || 0), 0);
   const monthOptions = [
-    ...new Set(arr.map((r) => getMonth(r.paymentDate)).filter(Boolean)),
+    ...new Set(
+      arr
+        .filter((r) => !String(r.orderId || "").startsWith("OFFSET:"))
+        .map((r) => getMonth(r.paymentDate))
+        .filter(Boolean),
+    ),
   ]
     .sort()
     .reverse();
@@ -136,11 +151,16 @@ export default function PaymentsPage({ data, search }) {
       >
         <thead>
           <tr style={{ background: "var(--s2)" }}>
-            {["Дата платежа", "Дата заказа", "Клиент", "Рынок", "Сумма", ""].map(
-              (h) => (
-                <TH key={h}>{h}</TH>
-              ),
-            )}
+            {[
+              "Дата платежа",
+              "Дата заказа",
+              "Клиент",
+              "Рынок",
+              "Сумма",
+              "",
+            ].map((h) => (
+              <TH key={h}>{h}</TH>
+            ))}
           </tr>
         </thead>
         <tbody>
@@ -176,7 +196,11 @@ export default function PaymentsPage({ data, search }) {
                     <IconBtn title="Изменить" onClick={() => openEdit(r)}>
                       ✏️
                     </IconBtn>
-                    <IconBtn title="Удалить" color="var(--red)" onClick={() => remove(r)}>
+                    <IconBtn
+                      title="Удалить"
+                      color="var(--red)"
+                      onClick={() => remove(r)}
+                    >
                       🗑
                     </IconBtn>
                   </div>
@@ -194,7 +218,11 @@ export default function PaymentsPage({ data, search }) {
         subtitle={editing?.client}
         footer={
           <>
-            <Btn variant="ghost" onClick={() => setEditing(null)} disabled={saving}>
+            <Btn
+              variant="ghost"
+              onClick={() => setEditing(null)}
+              disabled={saving}
+            >
               Отмена
             </Btn>
             <Btn variant="primary" onClick={save} loading={saving}>
@@ -215,7 +243,9 @@ export default function PaymentsPage({ data, search }) {
               <TextInput
                 inputMode="numeric"
                 value={editing.amount}
-                onChange={(e) => setEditing({ ...editing, amount: e.target.value })}
+                onChange={(e) =>
+                  setEditing({ ...editing, amount: e.target.value })
+                }
               />
             </Field>
           </>

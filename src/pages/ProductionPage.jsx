@@ -17,8 +17,7 @@ import { updateStatus, setStockOut, setNotFit } from "../services/api.js";
 import SharePdfButton, { esc } from "../components/SharePdfButton.jsx";
 
 /* ── PDF-документы для отправки (склад / водитель / цех) ───────────────── */
-const PDF_TD =
-  "padding:7px 8px;border-bottom:1px solid #dfe3e8;font-size:13px;vertical-align:top;";
+const PDF_TD = "padding:7px 8px;border-bottom:1px solid #dfe3e8;font-size:13px;vertical-align:top;";
 const PDF_TH =
   "padding:7px 8px;background:#f1f3f6;font-size:11px;text-transform:uppercase;color:#59606b;text-align:left;";
 const nowStr = () => {
@@ -72,14 +71,7 @@ function buildProductionHtml(date, rows, missingFn, notFitFn) {
 }
 
 // Развозка на день. kind: "driver" (по клиентам, адреса) | "warehouse" (сводка + сборка)
-function buildDeliveryHtml(
-  date,
-  groups,
-  stockOutMap,
-  notFitMap,
-  phoneByClient,
-  kind,
-) {
+function buildDeliveryHtml(date, groups, stockOutMap, notFitMap, phoneByClient, kind) {
   const sorted = [...groups].sort(
     (a, b) =>
       String(a.market).localeCompare(String(b.market), "ru") ||
@@ -92,25 +84,15 @@ function buildDeliveryHtml(
       const qty = Number(r.paidQuantity ?? r.quantity ?? 0);
       const key = `${g.oid}::${r.product}`;
       const missing = Math.min(qty, Number(stockOutMap.get(key) || 0));
-      const notFit = Math.min(
-        Math.max(0, qty - missing),
-        Number(notFitMap?.get(key) || 0),
-      );
+      const notFit = Math.min(Math.max(0, qty - missing), Number(notFitMap?.get(key) || 0));
       const q = Math.max(0, qty - missing - notFit);
       const tag = r.oldBox
         ? `своя тара${r.oldBoxColor === "dark" ? ", тёмные" : r.oldBoxColor === "white" ? ", обычные" : ""}`
         : r.oldBoxColor === "dark"
           ? "тёмные"
           : "";
-      if (q > 0)
-        items.push({
-          product: r.product,
-          qty: q,
-          tag,
-          comment: r.comment || "",
-        });
-      if (missing + notFit > 0)
-        skipped.push({ product: r.product, n: missing + notFit });
+      if (q > 0) items.push({ product: r.product, qty: q, tag, comment: r.comment || "" });
+      if (missing + notFit > 0) skipped.push({ product: r.product, n: missing + notFit });
     });
     return { items, skipped };
   };
@@ -119,12 +101,7 @@ function buildDeliveryHtml(
     const { items, skipped } = lines(g);
     if (!items.length && !skipped.length) return "";
     const boxes = items.reduce((s, i) => s + i.qty, 0);
-    const phone =
-      phoneByClient[
-        String(g.client || "")
-          .trim()
-          .toLowerCase()
-      ] || "";
+    const phone = phoneByClient[String(g.client || "").trim().toLowerCase()] || "";
     const done = g.status === "Доставлен";
     return `<div class="keep" style="border:1.5px solid #1d232b;border-radius:8px;padding:10px 12px;margin:12px 3px 0 1px;${done ? "opacity:.6;" : ""}">
       <div style="display:flex;justify-content:space-between;gap:10px;">
@@ -135,9 +112,7 @@ function buildDeliveryHtml(
       <table style="width:100%;border-collapse:collapse;margin-top:8px;">
         ${items
           .map(
-            (
-              i,
-            ) => `<tr><td style="${PDF_TD}">${esc(i.product)}${i.tag ? ` <span style="font-size:11px;color:#8a6d00;">(${esc(i.tag)})</span>` : ""}${i.comment ? `<div style="font-size:11px;color:#59606b;">${esc(i.comment)}</div>` : ""}</td>
+            (i) => `<tr><td style="${PDF_TD}">${esc(i.product)}${i.tag ? ` <span style="font-size:11px;color:#8a6d00;">(${esc(i.tag)})</span>` : ""}${i.comment ? `<div style="font-size:11px;color:#59606b;">${esc(i.comment)}</div>` : ""}</td>
             <td style="${PDF_TD}text-align:right;font-weight:800;font-size:16px;white-space:nowrap;">${i.qty} шт</td></tr>`,
           )
           .join("")}
@@ -187,11 +162,7 @@ function buildDeliveryHtml(
 
 // Картинка товара по названию — без учёта регистра и лишних пробелов
 // (в заказе "Чай " и в каталоге "чай" — один и тот же товар).
-const imgKey = (s) =>
-  String(s || "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
+const imgKey = (s) => String(s || "").replace(/\s+/g, " ").trim().toLowerCase();
 function imgOf(map, product) {
   if (map[product]) return map[product];
   if (!map.__norm) {
@@ -209,6 +180,18 @@ const norm = (s) =>
   String(s || "")
     .trim()
     .toLowerCase();
+
+// Недоставленные заказы за прошлые дни (дата доставки раньше сегодня).
+function overdueOf(groups) {
+  const t = new Date();
+  t.setHours(0, 0, 0, 0);
+  return groups.filter(
+    (g) =>
+      g.deliveryDate &&
+      g.status !== "Доставлен" &&
+      parseDateStr(String(g.deliveryDate).split(" ")[0]) < t,
+  );
+}
 
 function parseDateStr(date) {
   const p = String(date || "").split(".");
@@ -878,12 +861,7 @@ function ProductionView({
                     label="📤 PDF"
                     filename={`Производство ${date}.pdf`}
                     getHtml={() =>
-                      buildProductionHtml(
-                        date,
-                        rows,
-                        missingQtyAgg,
-                        notFitQtyAgg,
-                      )
+                      buildProductionHtml(date, rows, missingQtyAgg, notFitQtyAgg)
                     }
                   />
                 </span>
@@ -940,10 +918,7 @@ function ProductionView({
                             background: isOpen ? `${color}14` : "transparent",
                           }}
                         >
-                          <ProductThumb
-                            src={imgOf(priceMap, r.product)}
-                            size={56}
-                          />
+                          <ProductThumb src={imgOf(priceMap, r.product)} size={56} />
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div
                               style={{
@@ -1169,6 +1144,7 @@ function DeliveryView({
 }) {
   const [dateFilter, setDateFilter] = useState("");
   const [marketFilter, setMarketFilter] = useState("");
+  const [onlyOverdue, setOnlyOverdue] = useState(false);
   // Какие отметки («не хватает» / «не поместилось») раскрыты — по умолчанию
   // скрыты, чтобы на экране были только товар, количество и цена.
   const [openMarks, setOpenMarks] = useState(() => new Set());
@@ -1218,6 +1194,19 @@ function DeliveryView({
       .sort(sortByDateDesc);
   }, [orders, addressByClient]);
 
+  const overdue = useMemo(() => overdueOf(allGroups), [allGroups]);
+  const overdueIds = useMemo(
+    () => new Set(overdue.map((g) => g.oid)),
+    [overdue],
+  );
+  const overdueByDate = useMemo(() => {
+    const m = {};
+    overdue.forEach((g) => {
+      m[g.date] = (m[g.date] || 0) + 1;
+    });
+    return m;
+  }, [overdue]);
+
   const dates = [...new Set(allGroups.map((x) => x.date))].sort().reverse();
   const markets = [...new Set(allGroups.map((x) => x.market))]
     .filter(Boolean)
@@ -1239,8 +1228,9 @@ function DeliveryView({
     }
     if (dateFilter) r = r.filter((x) => x.date === dateFilter);
     if (marketFilter) r = r.filter((x) => x.market === marketFilter);
+    if (onlyOverdue) r = r.filter((x) => overdueIds.has(x.oid));
     return r;
-  }, [allGroups, search, dateFilter, marketFilter]);
+  }, [allGroups, search, dateFilter, marketFilter, onlyOverdue, overdueIds]);
 
   const byDate = useMemo(() => {
     const groups = {};
@@ -1270,6 +1260,74 @@ function DeliveryView({
 
   return (
     <>
+      {overdue.length > 0 && (
+        <div
+          style={{
+            border: "1px solid rgba(248,81,73,.5)",
+            background: "rgba(248,81,73,.10)",
+            borderRadius: 12,
+            padding: "12px 14px",
+            marginBottom: 14,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
+          >
+            <span
+              style={{
+                fontSize: isMobile ? 16 : 14,
+                fontWeight: 800,
+                color: "var(--red)",
+              }}
+            >
+              ⚠️ Не доставлено за прошлые дни: {overdue.length}
+            </span>
+            <Btn
+              size="sm"
+              variant={onlyOverdue ? "primary" : "ghost"}
+              style={{ marginLeft: "auto" }}
+              onClick={() => {
+                setOnlyOverdue((v) => !v);
+                setDateFilter("");
+              }}
+            >
+              {onlyOverdue ? "Показать все" : "Показать только их"}
+            </Btn>
+          </div>
+          <div
+            style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}
+          >
+            {Object.entries(overdueByDate)
+              .sort((a, b) => parseDateStr(a[0]) - parseDateStr(b[0]))
+              .map(([d, n]) => (
+                <button
+                  key={d}
+                  onClick={() => {
+                    setOnlyOverdue(false);
+                    setDateFilter(d);
+                  }}
+                  style={{
+                    background: "rgba(248,81,73,.16)",
+                    border: "1px solid rgba(248,81,73,.4)",
+                    color: "var(--red)",
+                    borderRadius: 20,
+                    padding: "3px 10px",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  {d} · {n}
+                </button>
+              ))}
+          </div>
+        </div>
+      )}
       <div style={isMobile ? S.kpiGridMobile : S.kpiGrid}>
         <KPI label="Заказов" value={filtered.length} color="var(--accent)" />
         <KPI
@@ -1321,14 +1379,23 @@ function DeliveryView({
                 <span style={{ fontSize: isMobile ? 17 : 14, fontWeight: 800 }}>
                   📅 {date}
                 </span>
-                <span
-                  style={{
-                    fontSize: isMobile ? 13.5 : 12,
-                    color: "var(--muted)",
-                  }}
-                >
+                <span style={{ fontSize: isMobile ? 13.5 : 12, color: "var(--muted)" }}>
                   {rows.length} заказ(ов)
                 </span>
+                {overdueByDate[date] > 0 && (
+                  <span
+                    style={{
+                      background: "rgba(248,81,73,.16)",
+                      color: "var(--red)",
+                      borderRadius: 20,
+                      padding: "2px 9px",
+                      fontSize: 12,
+                      fontWeight: 700,
+                    }}
+                  >
+                    ⚠️ не доставлено: {overdueByDate[date]}
+                  </span>
+                )}
                 <span
                   style={{
                     marginLeft: "auto",
@@ -1341,28 +1408,14 @@ function DeliveryView({
                     label="📤 Водителю"
                     filename={`Развозка ${date}.pdf`}
                     getHtml={() =>
-                      buildDeliveryHtml(
-                        date,
-                        rows,
-                        stockOutMap,
-                        notFitMap,
-                        phoneByClient,
-                        "driver",
-                      )
+                      buildDeliveryHtml(date, rows, stockOutMap, notFitMap, phoneByClient, "driver")
                     }
                   />
                   <SharePdfButton
                     label="📤 Складу"
                     filename={`Склад ${date}.pdf`}
                     getHtml={() =>
-                      buildDeliveryHtml(
-                        date,
-                        rows,
-                        stockOutMap,
-                        notFitMap,
-                        phoneByClient,
-                        "warehouse",
-                      )
+                      buildDeliveryHtml(date, rows, stockOutMap, notFitMap, phoneByClient, "warehouse")
                     }
                   />
                 </span>
@@ -1417,9 +1470,7 @@ function DeliveryView({
                           : "rgba(248,81,73,.11)",
                         border: `2px solid ${delivered ? "var(--green)" : "var(--red)"}`,
                         borderRadius: 14,
-                        boxShadow: isMobile
-                          ? "none"
-                          : "0 2px 10px rgba(0,0,0,.08)",
+                        boxShadow: isMobile ? "none" : "0 2px 10px rgba(0,0,0,.08)",
                         padding: isMobile ? "14px 12px" : "12px 12px",
                         opacity: delivered ? 0.85 : 1,
                       }}
@@ -1482,9 +1533,7 @@ function DeliveryView({
                           const markKey = `${r.oid}::${it.product}`;
                           const missingQty = stockOutMap.get(markKey) || 0;
                           const notFitQty = notFitMap?.get(markKey) || 0;
-                          const qty = Number(
-                            it.paidQuantity ?? it.quantity ?? 0,
-                          );
+                          const qty = Number(it.paidQuantity ?? it.quantity ?? 0);
                           const rowSum = Number(
                             it.total ?? qty * Number(it.price || 0),
                           );
@@ -1644,10 +1693,7 @@ function DeliveryView({
                             color: "var(--muted)",
                           }}
                         >
-                          Итого:{" "}
-                          <b style={{ color: "var(--text)" }}>
-                            {fmt(orderQty)} шт
-                          </b>
+                          Итого: <b style={{ color: "var(--text)" }}>{fmt(orderQty)} шт</b>
                         </span>
                         <span
                           style={{
@@ -1662,10 +1708,7 @@ function DeliveryView({
                       <button
                         disabled={busyStatus}
                         onClick={() =>
-                          onToggleStatus(
-                            r.oid,
-                            delivered ? "Новый" : "Доставлен",
-                          )
+                          onToggleStatus(r.oid, delivered ? "Новый" : "Доставлен")
                         }
                         style={{
                           width: "100%",
@@ -1716,6 +1759,11 @@ export function ProductionDeliveryPage({
   const { toast } = useUI();
   const orders = Array.isArray(store.orders) ? store.orders : [];
   const clients = Array.isArray(store.clients) ? store.clients : [];
+
+  const overdueCount = useMemo(
+    () => overdueOf(buildOrderGroups(orders)).length,
+    [orders],
+  );
 
   const [statusBusy, setStatusBusy] = useState(() => new Set());
   const [stockOutBusy, setStockOutBusy] = useState(() => new Set());
@@ -1866,6 +1914,21 @@ export function ProductionDeliveryPage({
           onClick={() => setView("delivery")}
         >
           🚚 Развозка
+          {overdueCount > 0 && (
+            <span
+              style={{
+                marginLeft: 6,
+                background: "var(--red)",
+                color: "#fff",
+                borderRadius: 20,
+                padding: "1px 7px",
+                fontSize: 11,
+                fontWeight: 800,
+              }}
+            >
+              {overdueCount}
+            </span>
+          )}
         </Btn>
       </div>
 
