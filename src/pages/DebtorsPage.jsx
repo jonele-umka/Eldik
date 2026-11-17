@@ -36,6 +36,8 @@ export default function DebtorsPage({ data, clients, search, onSelectClient }) {
   const [maxSum, setMaxSum] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  // По умолчанию — только должники; можно переключить на всех клиентов.
+  const [showAll, setShowAll] = useState(false);
 
   // Рынок клиента в самих должниках не хранится — берём из справочника
   // «Клиенты» по имени.
@@ -62,7 +64,26 @@ export default function DebtorsPage({ data, clients, search, onSelectClient }) {
   };
 
   const filtered = useMemo(() => {
-    let list = filterSearch(arr, ["client"], search);
+    let base = arr;
+    if (showAll) {
+      const have = new Set(arr.map((r) => norm(r.client)));
+      const zero = clientsArr
+        .filter((c) => c.name && !have.has(norm(c.name)))
+        .map((c) => ({
+          client: c.name,
+          ordered: 0,
+          returns: 0,
+          paid: 0,
+          offsets: 0,
+          openingBalance: 0,
+          newOrdersDebt: 0,
+          debt: 0,
+          lastOrderDate: "",
+          debtDate: "",
+        }));
+      base = [...arr, ...zero];
+    }
+    let list = filterSearch(base, ["client"], search);
 
     if (marketFilter) {
       list = list.filter(
@@ -94,6 +115,8 @@ export default function DebtorsPage({ data, clients, search, onSelectClient }) {
       .sort((a, b) => Number(b.debt || 0) - Number(a.debt || 0));
   }, [
     arr,
+    clientsArr,
+    showAll,
     search,
     marketFilter,
     minSum,
@@ -109,7 +132,11 @@ export default function DebtorsPage({ data, clients, search, onSelectClient }) {
   return (
     <>
       <div style={S.kpiGrid}>
-        <KPI label="Должников" value={filtered.length} color="var(--red)" />
+        <KPI
+          label={showAll ? "Клиентов" : "Должников"}
+          value={filtered.length}
+          color="var(--red)"
+        />
         <KPI label="Общий долг" value={fmtM(totalDebt)} color="var(--red)" />
       </div>
 
@@ -131,6 +158,18 @@ export default function DebtorsPage({ data, clients, search, onSelectClient }) {
           margin: "4px 0 14px",
         }}
       >
+        <div style={{ width: 190 }}>
+          <Field label="Показывать">
+            <SelectField
+              value={showAll ? "all" : "debtors"}
+              onChange={(v) => setShowAll(v === "all")}
+              options={[
+                { value: "debtors", label: "Только должники" },
+                { value: "all", label: "Все клиенты" },
+              ]}
+            />
+          </Field>
+        </div>
         <div style={{ width: 160 }}>
           <Field label="Рынок">
             <SelectField
@@ -214,7 +253,10 @@ export default function DebtorsPage({ data, clients, search, onSelectClient }) {
         />
       )}
 
-      <TableWrap title="Должники" count={`${filtered.length} человек`}>
+      <TableWrap
+        title={showAll ? "Все клиенты" : "Должники"}
+        count={`${filtered.length} человек`}
+      >
         <thead>
           <tr style={{ background: "var(--s2)" }}>
             {[
@@ -259,7 +301,9 @@ export default function DebtorsPage({ data, clients, search, onSelectClient }) {
               return (
                 <TR
                   key={i}
-                  bgColor="rgba(248,81,73,0.06)"
+                  bgColor={
+                    Number(r.debt || 0) > 0 ? "rgba(248,81,73,0.06)" : undefined
+                  }
                   onClick={() => onSelectClient?.(r.client)}
                 >
                   <TD>

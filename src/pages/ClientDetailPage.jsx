@@ -33,6 +33,7 @@ import StatementModal from "../components/StatementModal.jsx";
 import { useData, AFFECTS } from "../store/DataContext.jsx";
 import { useUI } from "../store/UIContext.jsx";
 import {
+  apiPost,
   deleteOffset,
   deleteOpeningBalance,
   deletePayment,
@@ -242,6 +243,35 @@ export default function ClientDetailPage({
   const [statementOpen, setStatementOpen] = useState(false);
   const [openOrder, setOpenOrder] = useState(null);
   const [expandedMonths, setExpandedMonths] = useState({});
+
+  // Удалить клиента целиком: заказы, оплаты, возвраты, зачёты, нач. остаток.
+  const removeClientAll = () =>
+    confirm({
+      title: `Удалить клиента «${client}» полностью?`,
+      text: "Будут удалены ВСЕ его заказы, оплаты, возвраты, взаимозачёты и начальный остаток. Финансы и долги пересчитаются без него. Это нельзя отменить.",
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await mutate(
+            () => apiPost({ action: "deleteClientAll", name: client }),
+            [
+              ...new Set([
+                ...AFFECTS.order,
+                ...AFFECTS.payment,
+                ...AFFECTS.return,
+                ...AFFECTS.offset,
+                ...AFFECTS.opening,
+                ...AFFECTS.client,
+              ]),
+            ],
+          );
+          toast("Клиент удалён", "ok");
+          onBack?.();
+        } catch (e) {
+          toast(e.message, "err");
+        }
+      },
+    });
 
   const clientRow = arr(store.clients).find((c) => norm(c.name) === clientKey);
   const clientMarket = clientRow?.market || "";
@@ -488,6 +518,7 @@ export default function ClientDetailPage({
         normOpening,
         buildReturnCredits(normGroups, clientReturns),
         clientReturns.map((r) => ({ ...r, client })),
+        { stockOutMap, notFitMap },
       );
 
     // Для отображения новые заказы сверху
@@ -512,7 +543,7 @@ export default function ClientDetailPage({
   // ИТОГИ
   // =========================
 
-  const totalSum = groups.reduce((s, g) => s + Number(g.totalSum || 0), 0);
+  const grossSum = groups.reduce((s, g) => s + Number(g.totalSum || 0), 0);
 
   const retSum = clientReturns.reduce((s, r) => s + Number(r.amount || 0), 0);
 
@@ -549,6 +580,21 @@ export default function ClientDetailPage({
         (1 - discountFactor(g.client, g.deliveryDate || g.orderDate)),
     0,
   );
+
+  // Недоставленное (не хватило / не поместилось) — не считаем: заказано
+  // и долг только по тому, что реально отправили.
+  const undeliveredSum = groups.reduce(
+    (s, g) =>
+      s +
+      Math.max(
+        0,
+        Number(g.totalSum || 0) -
+          Number(g.returnedAmount || 0) -
+          orderEffectiveTotal(g, stockOutMap, notFitMap),
+      ),
+    0,
+  );
+  const totalSum = grossSum - undeliveredSum;
 
   const calculatedDebt =
     totalSum - retSum - paidSum - offsetSum + openingSum - discountSum;
@@ -669,7 +715,11 @@ export default function ClientDetailPage({
   }, [groups, stockOutMap, notFitMap]);
 
   // Долг только по заказам — после всех оплат, без начального остатка
-  const ordersDebt = monthSections.reduce((sum, m) => sum + m.debt, 0);
+  // Берём из общего долга (минус то, что осталось по нач. остатку): так
+  // «Долг по заказам» и «Текущий долг» всегда согласованы. Раньше сумма по
+  // заказам по отдельности не учитывала переплату одного заказа
+  // (например, после возврата/недоставки) в счёт других.
+  const ordersDebt = Math.max(0, debt - (openingRemaining || 0));
 
   return (
     <>
@@ -767,6 +817,13 @@ export default function ClientDetailPage({
         </Btn>
         <Btn variant="ghost" onClick={() => setStatementOpen(true)}>
           📄 Акт сверки / отправить
+        </Btn>
+        <Btn
+          variant="danger"
+          onClick={removeClientAll}
+          style={{ marginLeft: "auto" }}
+        >
+          🗑 Удалить клиента
         </Btn>
       </Toolbar>
 

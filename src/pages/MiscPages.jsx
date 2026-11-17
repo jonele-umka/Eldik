@@ -69,7 +69,9 @@ export function ReturnsPage({ data, search }) {
   // чтобы можно было выбрать следующий товар без лишних нажатий.
   const setItem = (i, patch) =>
     setForm((f) => {
-      const items = f.items.map((it, j) => (j === i ? { ...it, ...patch } : it));
+      const items = f.items.map((it, j) =>
+        j === i ? { ...it, ...patch } : it,
+      );
       if (patch.product && i === items.length - 1)
         items.push({ product: "", quantity: "1", name: "", price: "" });
       return { ...f, items };
@@ -224,18 +226,16 @@ export function ReturnsPage({ data, search }) {
           "err",
         );
         // сохранённые убираем из формы, остальные оставляем для повтора
-        const rest = list
-          .slice(done)
-          .map(([product, q, mp]) =>
-            mp
-              ? {
-                  product: MANUAL,
-                  name: product,
-                  price: "",
-                  quantity: String(q),
-                }
-              : { product, quantity: String(q), name: "", price: "" },
-          );
+        const rest = list.slice(done).map(([product, q, mp]) =>
+          mp
+            ? {
+                product: MANUAL,
+                name: product,
+                price: "",
+                quantity: String(q),
+              }
+            : { product, quantity: String(q), name: "", price: "" },
+        );
         setForm((f) => ({ ...f, items: rest.length ? rest : f.items }));
         return;
       }
@@ -260,13 +260,21 @@ export function ReturnsPage({ data, search }) {
   const openGroup = (r) => {
     const day = dayOf(r.date);
     const rows = arr
-      .filter((x) => normC(x.client) === normC(r.client) && dayOf(x.date) === day)
+      .filter(
+        (x) => normC(x.client) === normC(r.client) && dayOf(x.date) === day,
+      )
       .map((x) => ({
         id: x.id,
         product: x.product,
         quantity: String(x.quantity),
         price: String(x.price),
-        o: { product: x.product, q: Number(x.quantity), p: Number(x.price) },
+        date: dayOf(x.date),
+        o: {
+          product: x.product,
+          q: Number(x.quantity),
+          p: Number(x.price),
+          d: dayOf(x.date),
+        },
       }));
     const market =
       clients.find((c) => normC(c.name) === normC(r.client))?.market ||
@@ -289,7 +297,9 @@ export function ReturnsPage({ data, search }) {
     }));
   const setGNew = (i, patch) =>
     setGroupEdit((g) => {
-      const items = g.newItems.map((it, j) => (j === i ? { ...it, ...patch } : it));
+      const items = g.newItems.map((it, j) =>
+        j === i ? { ...it, ...patch } : it,
+      );
       if (patch.product && i === items.length - 1)
         items.push({ product: "", quantity: "1" });
       return { ...g, newItems: items };
@@ -298,7 +308,9 @@ export function ReturnsPage({ data, search }) {
     setGroupEdit((g) => ({
       ...g,
       newItems:
-        g.newItems.length > 1 ? g.newItems.filter((_, j) => j !== i) : g.newItems,
+        g.newItems.length > 1
+          ? g.newItems.filter((_, j) => j !== i)
+          : g.newItems,
     }));
 
   const deleteInGroup = (row) =>
@@ -337,7 +349,10 @@ export function ReturnsPage({ data, search }) {
     const newList = Object.entries(merged).map(([product, q]) => [
       product,
       q,
-      priceOf(prices.find((p) => p.product === product), g.market),
+      priceOf(
+        prices.find((p) => p.product === product),
+        g.market,
+      ),
     ]);
     for (const [product, , price] of newList)
       if (!(price > 0)) return toast(`В каталоге нет цены: ${product}`, "err");
@@ -352,14 +367,14 @@ export function ReturnsPage({ data, search }) {
             r.product !== r.o.product ||
             q !== r.o.q ||
             pr !== r.o.p ||
-            g.date !== g.origDate;
+            r.date !== r.o.d;
           if (!changed) continue;
           await updateReturn({
             id: r.id,
             product: r.product,
             quantity: q,
             price: pr,
-            date: g.date,
+            date: r.date,
           });
         }
         for (const [product, q, price] of newList) {
@@ -466,10 +481,7 @@ export function ReturnsPage({ data, search }) {
                 </TD>
                 <TD>
                   <div style={{ display: "flex", gap: 6 }}>
-                    <IconBtn
-                      title="Изменить"
-                      onClick={() => openGroup(r)}
-                    >
+                    <IconBtn title="Изменить" onClick={() => openGroup(r)}>
                       ✏️
                     </IconBtn>
                     <IconBtn
@@ -671,7 +683,11 @@ export function ReturnsPage({ data, search }) {
         subtitle="Все товары этого возврата — здесь. Можно менять, удалять и добавлять"
         footer={
           <>
-            <Btn variant="ghost" onClick={() => setGroupEdit(null)} disabled={saving}>
+            <Btn
+              variant="ghost"
+              onClick={() => setGroupEdit(null)}
+              disabled={saving}
+            >
               Закрыть
             </Btn>
             <Btn variant="warn" onClick={saveGroup} loading={saving}>
@@ -682,80 +698,90 @@ export function ReturnsPage({ data, search }) {
       >
         {groupEdit && (
           <>
-            <Field label="Дата возврата">
-              <DateField
-                value={groupEdit.date}
-                onChange={(v) => setGroupEdit({ ...groupEdit, date: v })}
-              />
-            </Field>
-
             {groupEdit.rows.map((r) => (
               <div
                 key={r.id}
                 style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "flex-end",
-                  flexWrap: "wrap",
                   borderTop: "1px solid var(--b1)",
                   paddingTop: 8,
+                  marginTop: 4,
                 }}
               >
-                <div style={{ flex: 2, minWidth: 170 }}>
-                  <Field label="Товар">
-                    <SelectField
-                      value={r.product}
-                      onChange={(v) => {
-                        const row = prices.find((p) => p.product === v);
-                        setGRow(r.id, {
-                          product: v,
-                          price: row
-                            ? String(priceOf(row, groupEdit.market))
-                            : r.price,
-                        });
-                      }}
-                      options={[
-                        ...(prices.some((p) => p.product === r.product)
-                          ? []
-                          : [{ value: r.product, label: r.product }]),
-                        ...prices.map((p) => ({ value: p.product, label: p.product })),
-                      ]}
-                    />
-                  </Field>
-                </div>
-                <div style={{ flex: 1, minWidth: 80 }}>
-                  <Field label="Кол-во">
-                    <TextInput
-                      inputMode="decimal"
-                      value={r.quantity}
-                      onChange={(e) =>
-                        setGRow(r.id, {
-                          quantity: e.target.value.replace(/[^\d.,]/g, ""),
-                        })
-                      }
-                    />
-                  </Field>
-                </div>
-                <div style={{ flex: 1, minWidth: 90 }}>
-                  <Field label="Цена">
-                    <TextInput
-                      inputMode="decimal"
-                      value={r.price}
-                      onChange={(e) =>
-                        setGRow(r.id, {
-                          price: e.target.value.replace(/[^\d.,]/g, ""),
-                        })
-                      }
-                    />
-                  </Field>
-                </div>
-                <IconBtn
-                  title="Удалить"
-                  color="var(--red)"
-                  onClick={() => deleteInGroup(r)}
+                <Field label="Товар">
+                  <SelectField
+                    value={r.product}
+                    onChange={(v) => {
+                      const row = prices.find((p) => p.product === v);
+                      setGRow(r.id, {
+                        product: v,
+                        price: row
+                          ? String(priceOf(row, groupEdit.market))
+                          : r.price,
+                      });
+                    }}
+                    options={[
+                      ...(prices.some((p) => p.product === r.product)
+                        ? []
+                        : [{ value: r.product, label: r.product }]),
+                      ...prices.map((p) => ({
+                        value: p.product,
+                        label: p.product,
+                      })),
+                    ]}
+                  />
+                </Field>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "flex-end",
+                    flexWrap: "wrap",
+                  }}
                 >
-                  🗑
-                </IconBtn>
+                  <div style={{ flex: 2, minWidth: 140 }}>
+                    <Field label="Дата возврата">
+                      <DateField
+                        value={r.date}
+                        onChange={(v) => setGRow(r.id, { date: v })}
+                      />
+                    </Field>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 70 }}>
+                    <Field label="Кол-во">
+                      <TextInput
+                        inputMode="decimal"
+                        value={r.quantity}
+                        onChange={(e) =>
+                          setGRow(r.id, {
+                            quantity: e.target.value.replace(/[^\d.,]/g, ""),
+                          })
+                        }
+                      />
+                    </Field>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 80 }}>
+                    <Field label="Цена">
+                      <TextInput
+                        inputMode="decimal"
+                        value={r.price}
+                        onChange={(e) =>
+                          setGRow(r.id, {
+                            price: e.target.value.replace(/[^\d.,]/g, ""),
+                          })
+                        }
+                      />
+                    </Field>
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <IconBtn
+                      title="Удалить"
+                      color="var(--red)"
+                      onClick={() => deleteInGroup(r)}
+                    >
+                      🗑
+                    </IconBtn>
+                  </div>
+                </div>
               </div>
             ))}
 
@@ -769,10 +795,21 @@ export function ReturnsPage({ data, search }) {
             >
               Добавить ещё товары
             </div>
+            <Field label="Дата для новых товаров">
+              <DateField
+                value={groupEdit.date}
+                onChange={(v) => setGroupEdit({ ...groupEdit, date: v })}
+              />
+            </Field>
             {groupEdit.newItems.map((it, i) => (
               <div
                 key={i}
-                style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "flex-end",
+                  flexWrap: "wrap",
+                }}
               >
                 <div style={{ flex: 2, minWidth: 170 }}>
                   <Field label="">
@@ -783,7 +820,9 @@ export function ReturnsPage({ data, search }) {
                         .filter(
                           (p) =>
                             p.product === it.product ||
-                            !groupEdit.newItems.some((x) => x.product === p.product),
+                            !groupEdit.newItems.some(
+                              (x) => x.product === p.product,
+                            ),
                         )
                         .map((p) => ({ value: p.product, label: p.product }))}
                       placeholder="— выберите товар —"
@@ -959,6 +998,20 @@ export function ExpensesPage({ data, search }) {
             }
           >
             👷 Зарплата
+          </Btn>
+          <Btn
+            variant="ghost"
+            onClick={() =>
+              setEditing({
+                id: null,
+                date: todayString(),
+                category: "Аванс",
+                amount: "",
+                comment: "",
+              })
+            }
+          >
+            💸 Взял аванс
           </Btn>
           <Btn variant="primary" onClick={openAdd}>
             + Добавить расход

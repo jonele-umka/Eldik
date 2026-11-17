@@ -34,6 +34,7 @@ export default function PaymentsPage({ data, search }) {
   const [month, setMonth] = useState("");
   const [page, setPage] = useState(1);
   const arr = data || [];
+  const isBarter = (r) => String(r.orderId || "").startsWith("OFFSET:");
 
   const { mutate } = useData();
   const { toast, confirm } = useUI();
@@ -41,11 +42,10 @@ export default function PaymentsPage({ data, search }) {
   const [editing, setEditing] = useState(null); // { id, paymentDate, amount }
   const [saving, setSaving] = useState(false);
 
-  // Бартер (OFFSET:…) — это взаимозачёты, а не оплаты, их показываем на
-  // странице «Взаимозачёты». Иначе они забивают первые страницы списка.
+  // Бартер Украины (приход товаров) — тоже оплата, показываем с пометкой.
+  // Сортируем по дате платежа, новые сверху.
   const filtered = useMemo(() => {
-    let r = arr.filter((x) => !String(x.orderId || "").startsWith("OFFSET:"));
-    r = filterSearch(r, ["client", "market"], search);
+    let r = filterSearch(arr, ["client", "market"], search);
     if (market) r = r.filter((x) => x.market === market);
     if (month) r = r.filter((x) => getMonth(x.paymentDate) === month);
     const key = (x) => {
@@ -60,12 +60,7 @@ export default function PaymentsPage({ data, search }) {
 
   const total = filtered.reduce((s, r) => s + Number(r.amount || 0), 0);
   const monthOptions = [
-    ...new Set(
-      arr
-        .filter((r) => !String(r.orderId || "").startsWith("OFFSET:"))
-        .map((r) => getMonth(r.paymentDate))
-        .filter(Boolean),
-    ),
+    ...new Set(arr.map((r) => getMonth(r.paymentDate)).filter(Boolean)),
   ]
     .sort()
     .reverse();
@@ -186,24 +181,45 @@ export default function PaymentsPage({ data, search }) {
                 </TD>
                 <TD>
                   <b>{r.client}</b>
+                  {isBarter(r) && (
+                    <span
+                      style={{
+                        marginLeft: 8,
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        color: "#a371f7",
+                        background: "rgba(163,113,247,.14)",
+                        borderRadius: 20,
+                        padding: "2px 8px",
+                      }}
+                    >
+                      🔁 бартер · приход товаров
+                    </span>
+                  )}
                 </TD>
                 <TD style={{ color: "var(--muted)" }}>{r.market}</TD>
                 <TD>
                   <MoneyCell n={r.amount} pos={true} />
                 </TD>
                 <TD>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <IconBtn title="Изменить" onClick={() => openEdit(r)}>
-                      ✏️
-                    </IconBtn>
-                    <IconBtn
-                      title="Удалить"
-                      color="var(--red)"
-                      onClick={() => remove(r)}
-                    >
-                      🗑
-                    </IconBtn>
-                  </div>
+                  {isBarter(r) ? (
+                    <span style={{ fontSize: 11, color: "var(--muted)" }}>
+                      из поступлений
+                    </span>
+                  ) : (
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <IconBtn title="Изменить" onClick={() => openEdit(r)}>
+                        ✏️
+                      </IconBtn>
+                      <IconBtn
+                        title="Удалить"
+                        color="var(--red)"
+                        onClick={() => remove(r)}
+                      >
+                        🗑
+                      </IconBtn>
+                    </div>
+                  )}
                 </TD>
               </TR>
             ))

@@ -165,7 +165,13 @@ export default function FinancePage({
   const { data: store } = useData();
   const [closedMonths, setClosedMonths] = useState({});
 
-  const totalDebt = calcDebt(orders);
+  // Общий долг — ровно то, что в «Должниках» (учтены все оплаты, зачёты,
+  // возвраты и начальные остатки). Старый расчёт по заказам считал только
+  // оплаты, привязанные к заказу, поэтому сильно завышал долг.
+  const debtorsList = Array.isArray(store.debtors) ? store.debtors : null;
+  const totalDebt = debtorsList
+    ? debtorsList.reduce((s, r) => s + Number(r.debt || 0), 0)
+    : calcDebt(orders);
 
   let allVolume = 0,
     allIncome = 0,
@@ -273,6 +279,21 @@ export default function FinancePage({
     volumePeriods[key] = (volumePeriods[key] || 0) + g.effective;
   });
   const dordoiVolume = Object.values(volumePeriods).reduce((a, b) => a + b, 0);
+  // Авансы, которые Урмат уже взял из поступивших денег (расход с
+  // категорией «Аванс…» / «Взял…»). Они уже вычтены из кассы как расход,
+  // поэтому из его доли они не вычитаются второй раз.
+  const isAdvance = (e) => /аванс|взял/i.test(String(e.category || ""));
+  const advPeriods = {};
+  let advTotal = 0;
+  (Array.isArray(store.expenses) ? store.expenses : []).forEach((e) => {
+    if (!isAdvance(e)) return;
+    const t = parseDay(e.date);
+    if (!t) return;
+    const k = periodKeyOf(t);
+    const a = Number(e.amount || 0);
+    advPeriods[k] = (advPeriods[k] || 0) + a;
+    advTotal += a;
+  });
   const periodLabel = (key) => {
     const [y, m] = key.split("-").map(Number);
     const ny = m === 12 ? y + 1 : y;
@@ -280,7 +301,11 @@ export default function FinancePage({
     return `16 ${MS[m - 1]} ${y} – 15 ${MS[nm - 1]} ${ny}`;
   };
   const periodKeys = [
-    ...new Set([...Object.keys(urmatPeriods), ...Object.keys(volumePeriods)]),
+    ...new Set([
+      ...Object.keys(urmatPeriods),
+      ...Object.keys(volumePeriods),
+      ...Object.keys(advPeriods),
+    ]),
   ]
     .sort()
     .reverse();
@@ -298,7 +323,8 @@ export default function FinancePage({
   const curUrmat = (urmatPeriods[curKey] || 0) * 0.05;
   const curReceived = urmatPeriods[curKey] || 0;
   const curVolume = volumePeriods[curKey] || 0;
-  const akylbekNetProfit = allBalance - urmatTotal - amanCut;
+  const curAdv = advPeriods[curKey] || 0;
+  const akylbekNetProfit = allBalance + advTotal - urmatTotal - amanCut;
 
   // Пассивный доход Урмата: 5% от ПРОДАЖ (не от полученных денег) по этим
   // товарам — у ВСЕХ клиентов и рынков, не только «Дордой-фуд». Считаем по
@@ -312,7 +338,8 @@ export default function FinancePage({
   (Array.isArray(store.returns) ? store.returns : []).forEach((r) => {
     if (!r.orderId || !r.product) return;
     const k = `${r.orderId}::${r.product}`;
-    returnsByOrderProduct[k] = (returnsByOrderProduct[k] || 0) + Number(r.amount || 0);
+    returnsByOrderProduct[k] =
+      (returnsByOrderProduct[k] || 0) + Number(r.amount || 0);
   });
   const passivePeriods = {}; // период -> { "Сникерс": сумма, ... }
   orderGroups.forEach((g) => {
@@ -325,10 +352,14 @@ export default function FinancePage({
       const qty = Number(r.paidQuantity ?? r.quantity ?? 0);
       const sk = `${g.oid}::${r.product}`;
       const missing = Math.min(qty, Number(stockOutMap.get(sk) || 0));
-      const notFit = Math.min(Math.max(0, qty - missing), Number(notFitMap.get(sk) || 0));
+      const notFit = Math.min(
+        Math.max(0, qty - missing),
+        Number(notFitMap.get(sk) || 0),
+      );
       const sold = Math.max(
         0,
-        (qty - missing - notFit) * Number(r.price || 0) - (returnsByOrderProduct[sk] || 0),
+        (qty - missing - notFit) * Number(r.price || 0) -
+          (returnsByOrderProduct[sk] || 0),
       );
       if (!passivePeriods[key]) passivePeriods[key] = {};
       passivePeriods[key][prod] = (passivePeriods[key][prod] || 0) + sold;
@@ -379,8 +410,23 @@ export default function FinancePage({
     return kLabel(key, dc.startDay, dc.endDay);
   };
   const discountClients = [
-    { match: "кубаныч", title: "Кубаныч ДФ", discount: DISCOUNT, startDay: 16, endDay: 15, since: 20260916 },
-    { match: "элдияр", title: "Элдияр ДФ", discount: DISCOUNT, startDay: 16, endDay: 15, since: 20260916, irregular: true },
+    {
+      match: "кубаныч",
+      title: "Кубаныч ДФ",
+      discount: DISCOUNT,
+      startDay: 16,
+      endDay: 15,
+      since: 20260916,
+    },
+    {
+      match: "элдияр",
+      title: "Элдияр ДФ",
+      discount: DISCOUNT,
+      startDay: 16,
+      endDay: 15,
+      since: 20260916,
+      irregular: true,
+    },
     // Бартер: «оплачено» — это приходы товаров от Украины (считаются как оплата)
     {
       match: "украина",
@@ -390,57 +436,69 @@ export default function FinancePage({
       endDay: 14,
       barter: true,
     },
-  ].map(({ match, title, discount, startDay, endDay, special, since, irregular, barter }) => {
-    const periods = {};
-    const row = (k) => periods[k] || (periods[k] = { orders: 0, paid: 0 });
-    let realName = "";
-    let totOrders = 0;
-    let totPaid = 0;
-    orderGroups.forEach((g) => {
-      if (!normClient(g.client).includes(match)) return;
-      const t = parseDay(g.deliveryDate || g.orderDate);
-      if (!t) return;
-      if (since && t.yy * 10000 + t.mm * 100 + t.dd < since) return;
-      if (!realName) realName = g.client;
-      totOrders += g.effective;
-      row(kKeyOf(t, startDay, special)).orders += g.effective;
-    });
-    (Array.isArray(payments) ? payments : []).forEach((p) => {
-      if (!normClient(p.client).includes(match)) return;
-      const t = parseDay(p.paymentDate);
-      if (!t) return;
-      if (since && t.yy * 10000 + t.mm * 100 + t.dd < since) return;
-      totPaid += Number(p.amount || 0);
-      row(kKeyOf(t, startDay, special)).paid += Number(p.amount || 0);
-    });
-    // Переплата прошлого периода переходит в следующий и уменьшает его остаток.
-    let carry = 0;
-    Object.keys(periods)
-      .sort()
-      .forEach((k) => {
-        const r = periods[k];
-        r.carryIn = carry;
-        r.diff = r.orders * (1 - discount) - r.paid - carry;
-        carry = r.diff < 0 ? -r.diff : 0;
-      });
-    const keys = Object.keys(periods).sort().reverse();
-    const orders_ = totOrders;
-    const paid = totPaid;
-    return {
+  ].map(
+    ({
+      match,
       title,
-      periods,
-      keys,
-      orders: orders_,
-      paid,
       discount,
       startDay,
       endDay,
       special,
+      since,
       irregular,
       barter,
-      realName: realName || title,
-    };
-  });
+    }) => {
+      const periods = {};
+      const row = (k) => periods[k] || (periods[k] = { orders: 0, paid: 0 });
+      let realName = "";
+      let totOrders = 0;
+      let totPaid = 0;
+      orderGroups.forEach((g) => {
+        if (!normClient(g.client).includes(match)) return;
+        const t = parseDay(g.deliveryDate || g.orderDate);
+        if (!t) return;
+        if (since && t.yy * 10000 + t.mm * 100 + t.dd < since) return;
+        if (!realName) realName = g.client;
+        totOrders += g.effective;
+        row(kKeyOf(t, startDay, special)).orders += g.effective;
+      });
+      (Array.isArray(payments) ? payments : []).forEach((p) => {
+        if (!normClient(p.client).includes(match)) return;
+        const t = parseDay(p.paymentDate);
+        if (!t) return;
+        if (since && t.yy * 10000 + t.mm * 100 + t.dd < since) return;
+        totPaid += Number(p.amount || 0);
+        row(kKeyOf(t, startDay, special)).paid += Number(p.amount || 0);
+      });
+      // Переплата прошлого периода переходит в следующий и уменьшает его остаток.
+      let carry = 0;
+      Object.keys(periods)
+        .sort()
+        .forEach((k) => {
+          const r = periods[k];
+          r.carryIn = carry;
+          r.diff = r.orders * (1 - discount) - r.paid - carry;
+          carry = r.diff < 0 ? -r.diff : 0;
+        });
+      const keys = Object.keys(periods).sort().reverse();
+      const orders_ = totOrders;
+      const paid = totPaid;
+      return {
+        title,
+        periods,
+        keys,
+        orders: orders_,
+        paid,
+        discount,
+        startDay,
+        endDay,
+        special,
+        irregular,
+        barter,
+        realName: realName || title,
+      };
+    },
+  );
 
   const sectionStyle = { ...S.card, marginBottom: 20 };
   const sectionHeader = {
@@ -510,6 +568,13 @@ export default function FinancePage({
             sub={`всего: ${fmtM(amanCut)}`}
           />
           <MiniStat
+            label="Взял авансом · этот период"
+            value={curAdv}
+            color="var(--yellow)"
+            bold
+            sub={`осталось получить: ${fmtM(curUrmat - curAdv)} · всего взял: ${fmtM(advTotal)}`}
+          />
+          <MiniStat
             label="Поступило за этот период (Дордой-фуд)"
             value={curReceived}
             color="var(--green)"
@@ -543,6 +608,8 @@ export default function FinancePage({
                     "Объём заказов (Дордой-фуд)",
                     "Поступило",
                     "5%",
+                    "Взял авансом",
+                    "Осталось получить",
                   ].map((h) => (
                     <TH key={h}>{h}</TH>
                   ))}
@@ -555,6 +622,23 @@ export default function FinancePage({
                     <TD>{fmtM(volumePeriods[k] || 0)}</TD>
                     <TD>{fmtM(urmatPeriods[k] || 0)}</TD>
                     <TD>{fmtM((urmatPeriods[k] || 0) * 0.05)}</TD>
+                    <TD>{fmtM(advPeriods[k] || 0)}</TD>
+                    <TD>
+                      <b
+                        style={{
+                          color:
+                            (urmatPeriods[k] || 0) * 0.05 -
+                              (advPeriods[k] || 0) >=
+                            0
+                              ? "var(--green)"
+                              : "var(--red)",
+                        }}
+                      >
+                        {fmtM(
+                          (urmatPeriods[k] || 0) * 0.05 - (advPeriods[k] || 0),
+                        )}
+                      </b>
+                    </TD>
                   </TR>
                 ))}
               </tbody>
@@ -567,7 +651,9 @@ export default function FinancePage({
           Украина платит сырьём (бартер): это входит в «Доходы», «Кассу» и в
           долю Урмата. Скидка 3% для «Элдияр ДФ» и «Кубаныч ДФ» на зарплаты не
           влияет, она показана только в блоке «Деньги клиентов». Возвраты в
-          долях не учитываются.
+          долях не учитываются. «Взял авансом» — расходы с категорией «Аванс»
+          (кнопка на странице «Расходы»), они уменьшают то, что ещё осталось
+          получить.
         </div>
       </div>
 
@@ -586,7 +672,14 @@ export default function FinancePage({
           borderTop: "3px solid var(--green)",
         }}
       >
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 24, marginBottom: 12 }}>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 24,
+            marginBottom: 12,
+          }}
+        >
           <MiniStat
             label={`Мои 5% · ${periodLabel(curKey)}`}
             value={curPassive}
@@ -607,7 +700,13 @@ export default function FinancePage({
           </div>
         ) : (
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 13,
+              }}
+            >
               <thead>
                 <tr style={{ background: "var(--s2)" }}>
                   {[
@@ -641,9 +740,9 @@ export default function FinancePage({
         )}
         <div style={{ fontSize: 11.5, color: "var(--muted2)", marginTop: 10 }}>
           Считается от стоимости проданного по дате доставки (все клиенты и
-          рынки, включая Амана и Украину), без скидки 3%. Возвраты, «не
-          хватает» и «не поместилось» вычтены. Названия товаров ищутся по
-          слову, например «Курабье 1 кг» тоже попадёт.
+          рынки, включая Амана и Украину), без скидки 3%. Возвраты, «не хватает»
+          и «не поместилось» вычтены. Названия товаров ищутся по слову, например
+          «Курабье 1 кг» тоже попадёт.
         </div>
       </div>
 
@@ -726,38 +825,40 @@ export default function FinancePage({
                         <TD>{fmtM(r.orders)}</TD>
                         {dc.discount ? <TD>{fmtM(due)}</TD> : null}
                         {dc.irregular ? null : <TD>{fmtM(r.paid)}</TD>}
-                        {dc.irregular ? null : <TD>
-                          <span
-                            style={{
-                              color:
-                                diff > 0
-                                  ? "var(--red)"
-                                  : diff < 0
-                                    ? "var(--green)"
-                                    : "inherit",
-                              fontWeight: 600,
-                            }}
-                          >
-                            {diff > 0
-                              ? "должен "
-                              : diff < 0
-                                ? "переплата "
-                                : ""}
-                            {fmtM(Math.abs(diff))}
-                          </span>
-                          {r.carryIn > 0 && (
-                            <div
+                        {dc.irregular ? null : (
+                          <TD>
+                            <span
                               style={{
-                                fontSize: 11,
-                                color: "var(--muted)",
-                                marginTop: 2,
+                                color:
+                                  diff > 0
+                                    ? "var(--red)"
+                                    : diff < 0
+                                      ? "var(--green)"
+                                      : "inherit",
+                                fontWeight: 600,
                               }}
                             >
-                              учтена переплата прошлого периода{" "}
-                              {fmtM(r.carryIn)}
-                            </div>
-                          )}
-                        </TD>}
+                              {diff > 0
+                                ? "должен "
+                                : diff < 0
+                                  ? "переплата "
+                                  : ""}
+                              {fmtM(Math.abs(diff))}
+                            </span>
+                            {r.carryIn > 0 && (
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  color: "var(--muted)",
+                                  marginTop: 2,
+                                }}
+                              >
+                                учтена переплата прошлого периода{" "}
+                                {fmtM(r.carryIn)}
+                              </div>
+                            )}
+                          </TD>
+                        )}
                       </TR>
                     );
                   })}
@@ -825,12 +926,14 @@ export default function FinancePage({
             <div
               style={{ fontSize: 11.5, color: "var(--muted2)", marginTop: 10 }}
             >
-              Период — по дате доставки.{!dc.barter &&
+              Период — по дате доставки.
+              {!dc.barter &&
                 (dc.irregular
                   ? " Платит нерегулярно, поэтому оплата показана одним итогом, а не по периодам."
-                  : " Периоды с 16-го по 15-е. Переплата переходит в следующий период.")} Сумма заказа — как «К оплате» в
-              карточке: за вычетом возвратов, «нет в наличии» и «не
-              поместилось». Начальный остаток не учитывается.
+                  : " Периоды с 16-го по 15-е. Переплата переходит в следующий период.")}{" "}
+              Сумма заказа — как «К оплате» в карточке: за вычетом возвратов,
+              «нет в наличии» и «не поместилось». Начальный остаток не
+              учитывается.
               {dc.barter &&
                 " Оплата — приходы товаров от Украины по дате прихода; если привезли больше, чем заказали, или наоборот, разница видна в колонке «Остаток»."}
             </div>

@@ -122,6 +122,7 @@ export default function OrdersPage({
       openingBalances,
       returnCredits,
       store.returns,
+      { stockOutMap, notFitMap },
     );
 
     // Сортируем по дате ДОСТАВКИ (не создания заказа) — иначе если
@@ -141,6 +142,8 @@ export default function OrdersPage({
     offsets,
     openingBalances,
     store.returns,
+    stockOutMap,
+    notFitMap,
   ]);
 
   const totalPages = Math.ceil(allGroups.length / GPAGE);

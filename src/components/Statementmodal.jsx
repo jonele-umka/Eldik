@@ -233,8 +233,14 @@ export default function StatementModal({
     const periodOrders = orders.filter(
       (o) => o.key >= fromKey && o.key <= toKey,
     );
+    // возврат по заказу относится к периоду заказа, возврат на нач. остаток — к своей дате
+    const ordByOid = new Map(orders.map((o) => [String(o.oid), o]));
+    const retInPeriod = (r) => {
+      const o = ordByOid.get(String(r.orderId || "").trim());
+      return o ? o.key >= fromKey && o.key <= toKey : inRange(r.date);
+    };
     const retTotal = (returns || [])
-      .filter((r) => inRange(r.date))
+      .filter(retInPeriod)
       .reduce((a, r) => a + Number(r.amount || 0), 0);
     return {
       ordered: periodOrders.reduce((a, o) => a + o.sum, 0),
@@ -424,8 +430,15 @@ export default function StatementModal({
           : []
       ).sort((a, b) => b.key - a.key);
       // все возвраты клиента за период (и по заказам, и на нач. остаток)
+      const ordByOid2 = new Map(orders.map((o) => [String(o.oid), o]));
       const retList = (returns || [])
-        .filter((r) => keyOf(r.date) >= fromKey && keyOf(r.date) <= toKey)
+        .filter((r) => {
+          const o = ordByOid2.get(String(r.orderId || "").trim());
+          const k = keyOf(r.date);
+          return o
+            ? o.key >= fromKey && o.key <= toKey
+            : k >= fromKey && k <= toKey;
+        })
         .sort((a, b) => keyOf(b.date) - keyOf(a.date));
       const retTotal = retList.reduce((a, r) => a + Number(r.amount || 0), 0);
       const ordered = periodOrders.reduce((a, o) => a + o.sum, 0);
@@ -477,7 +490,7 @@ export default function StatementModal({
                   .map((r) => {
                     const oid = String(r.orderId || "").trim();
                     const where = orderNo.has(oid)
-                      ? `заказ № ${esc(orderNo.get(oid))}`
+                      ? `заказ от ${esc(ordByOid2.get(oid).date)} № ${esc(orderNo.get(oid))}`
                       : "нач. остаток";
                     return row(
                       `${esc(dayStr(r.date))} · ${esc(r.product)} × ${esc(r.quantity)} <span style="color:#59606b;">(${where})</span>`,

@@ -197,6 +197,7 @@ export function distributeClientCredits(
   openingBalances,
   returnCredits,
   returns,
+  missing, // { stockOutMap, notFitMap } — недоставленное в долг не входит
 ) {
   const norm = (s) =>
     String(s || "")
@@ -323,7 +324,9 @@ export function distributeClientCredits(
         factor: discountFactor(g.client, g.deliveryDate || g.orderDate),
         remaining: Math.max(
           0,
-          (Number(g.totalSum || 0) - Number(g.returnedAmount || 0)) *
+          (missing
+            ? orderEffectiveTotal(g, missing.stockOutMap, missing.notFitMap)
+            : Number(g.totalSum || 0) - Number(g.returnedAmount || 0)) *
             discountFactor(g.client, g.deliveryDate || g.orderDate) -
             Number(g.paidAmount || 0),
         ),

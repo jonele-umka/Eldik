@@ -93,6 +93,33 @@ const autoPurchaseSum = (it) => {
   return qty > 0 && price > 0 ? Math.round(qty * price * 100) / 100 : null;
 };
 
+// «Вес/ед.: 50 кг × 40 — коммент» → { kg, count, rest }
+const parseWeightComment = (comment) => {
+  const m = String(comment || "").match(
+    /^Вес\/ед\.:\s*([\d.,]+)\s*кг(?:\s*×\s*([\d.,]+))?\s*—?\s*(.*)$/,
+  );
+  if (!m) return null;
+  return {
+    kg: Number(String(m[1]).replace(",", ".")) || 0,
+    count: Number(String(m[2] || "").replace(",", ".")) || 0,
+    rest: m[3] || "",
+  };
+};
+
+// Что и по сколько пришло: «40 × 50 кг = 2 000 кг · 3 450 с/ед.»
+const purchaseDetail = (p) => {
+  const w = parseWeightComment(p.comment);
+  const qty = Number(p.quantity || 0);
+  const price = Number(p.price || 0);
+  if (w && w.kg > 0) {
+    const count = w.count || (qty > 0 ? qty / w.kg : 0);
+    const unit = Math.round(price * w.kg * 100) / 100;
+    return `${fmt(count)} × ${fmt(w.kg)} кг = ${fmt(qty)} кг · ${fmt(unit)} с за ед. (${fmt(price)} с/кг)`;
+  }
+  if (qty > 0 && price > 0) return `${fmt(qty)} × ${fmt(price)} с`;
+  return "";
+};
+
 const TYPE_META = {
   opening: { label: "📌 Нач. остаток", color: "#d29922", sign: "+" },
   purchase: { label: "📦 Поступление", color: "var(--green)", sign: "+" },
@@ -244,6 +271,19 @@ export default function SupplierDetailPage({
     0,
   );
 
+  // Бартерные взаимозачёты создаются из поступлений автоматически — в
+  // истории их не показываем (это просто оплата товаром), но в итогах
+  // они учитываются.
+  const barterIds = useMemo(
+    () =>
+      new Set(
+        arr(offsets)
+          .map((o) => String(o.id || ""))
+          .filter((id) => id.startsWith("BARTER_")),
+      ),
+    [offsets],
+  );
+
   const entries = useMemo(() => {
     const list = [
       ...arr(openingBalances)
@@ -266,8 +306,14 @@ export default function SupplierDetailPage({
           date: p.date,
           amount: Number(p.amount || 0),
           title: p.product || "Товар",
-          detail: "",
-          comment: p.comment,
+          detail:
+            purchaseDetail(p) +
+            (barterIds.has("BARTER_" + p.id)
+              ? " · оплачено товарами (бартер)"
+              : ""),
+          comment: parseWeightComment(p.comment)
+            ? parseWeightComment(p.comment).rest
+            : p.comment,
           raw: p,
         })),
       ...arr(payments)
@@ -296,10 +342,16 @@ export default function SupplierDetailPage({
           detail: "клиент заплатил вместо нас",
           comment: o.comment,
           raw: o,
+          hidden: String(o.id || "").startsWith("BARTER_"),
         })),
     ];
     return list.sort((a, b) => dateTimeKey(b.date) - dateTimeKey(a.date));
-  }, [purchases, payments, offsets, openingBalances, key]);
+  }, [purchases, payments, offsets, openingBalances, key, barterIds]);
+
+  const visibleEntries = useMemo(
+    () => entries.filter((e) => !e.hidden),
+    [entries],
+  );
 
   const totals = useMemo(() => {
     const sum = (k) =>
@@ -634,7 +686,7 @@ export default function SupplierDetailPage({
         </Btn>
       </Toolbar>
 
-      <TableWrap title="История операций" count={`${entries.length}`}>
+      <TableWrap title="История операций" count={`${visibleEntries.length}`}>
         <thead>
           <tr style={{ background: "var(--s2)" }}>
             {["Дата", "Тип", "Детали", "Комментарий", "Сумма", ""].map(
@@ -645,7 +697,7 @@ export default function SupplierDetailPage({
           </tr>
         </thead>
         <tbody>
-          {entries.length === 0 ? (
+          {visibleEntries.length === 0 ? (
             <tr>
               <td
                 colSpan={6}
@@ -659,7 +711,7 @@ export default function SupplierDetailPage({
               </td>
             </tr>
           ) : (
-            entries.map((e, i) => {
+            visibleEntries.map((e, i) => {
               const t = TYPE_META[e.kind];
               return (
                 <TR key={`${e.kind}_${e.id || i}`}>
