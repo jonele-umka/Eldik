@@ -12,7 +12,15 @@ import {
   discountFactor,
 } from "../utils/index.js";
 import { dateTimeKey, fmtDateTime } from "../utils/ledger.js";
-import { KPI, TableWrap, TR, TD, TH, MoneyCell } from "../components/UI.jsx";
+import {
+  KPI,
+  TableWrap,
+  TR,
+  TD,
+  TH,
+  MoneyCell,
+  ProductThumb,
+} from "../components/UI.jsx";
 import { OrderCard } from "../components/OrderCard.jsx";
 import { S } from "../utils/styles.js";
 import {
@@ -712,7 +720,7 @@ export default function ClientDetailPage({
       m.debt += Math.max(0, eff - Math.min(eff, paid)) * f;
     });
     return [...map.values()].sort((a, b) => (a.key < b.key ? 1 : -1));
-  }, [groups, stockOutMap, notFitMap]);
+  }, [groups, stockOutMap, notFitMap, clientReturns]);
 
   // Долг только по заказам — после всех оплат, без начального остатка
   // Берём из общего долга (минус то, что осталось по нач. остатку): так
@@ -720,6 +728,110 @@ export default function ClientDetailPage({
   // заказам по отдельности не учитывала переплату одного заказа
   // (например, после возврата/недоставки) в счёт других.
   const ordersDebt = Math.max(0, debt - (openingRemaining || 0));
+
+  // =========================
+  // ЧТО КЛИЕНТ ОБЫЧНО БЕРЁТ
+  // =========================
+  // Смотрим последние заказы: что берёт часто, сколько обычно,
+  // и чего не было в последнем заказе — это и предлагаем.
+  const normName = (x) =>
+    String(x || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase()
+      .replace(/ё/g, "е");
+  const imageByProduct = useMemo(() => {
+    const m = {};
+    arr(store.prices).forEach((p) => {
+      const img = p.image || p.imageUrl || p.photo || "";
+      if (p.product && img) m[normName(p.product)] = img;
+    });
+    return m;
+  }, [store.prices]);
+  const usual = useMemo(() => {
+    const WINDOW = 20; // последних заказов
+    const list = [...groups]
+      .filter((g) => String(g.status || "") !== "Отменён")
+      .sort(
+        (a, b) =>
+          parseDate(b.deliveryDate || b.orderDate) -
+          parseDate(a.deliveryDate || a.orderDate),
+      )
+      .slice(0, WINDOW);
+    const total = list.length;
+    if (total < 2) return null;
+    const dayOf = (d) =>
+      String(d || "")
+        .trim()
+        .split(" ")[0];
+    const map = new Map();
+    list.forEach((g, gi) => {
+      const seen = new Set();
+      g.rows.forEach((r) => {
+        const name = String(r.product || "").trim();
+        const q = Number(r.quantity || 0);
+        if (!name || !(q > 0)) return;
+        const k = `${g.oid}::${name}`;
+        const short =
+          Math.min(q, Number(stockOutMap.get(k) || 0)) +
+          Number(notFitMap.get(k) || 0);
+        const m =
+          map.get(name) ||
+          map
+            .set(name, {
+              name,
+              orders: 0,
+              qtys: [],
+              idx: gi,
+              lastQty: q,
+              lastDate: "",
+              lastShort: 0,
+            })
+            .get(name);
+        if (!seen.has(name)) {
+          seen.add(name);
+          m.orders += 1;
+          m.qtys.push(q);
+          if (gi <= m.idx) {
+            m.idx = gi;
+            m.lastQty = q;
+            m.lastDate = dayOf(g.deliveryDate || g.orderDate);
+            m.lastShort = short;
+          }
+        }
+      });
+    });
+    const median = (arr2) => {
+      const a = [...arr2].sort((x, y) => x - y);
+      const h = a.length >> 1;
+      return a.length % 2 ? a[h] : Math.round((a[h - 1] + a[h]) / 2);
+    };
+    // что клиент возвращал — такое не считаем «любимым» и не предлагаем
+    const retBy = {};
+    arr(clientReturns).forEach((r) => {
+      const k = normName(r.product);
+      retBy[k] = (retBy[k] || 0) + Number(r.quantity || 0);
+    });
+    const items = [...map.values()]
+      .filter((m) => m.orders >= 2 && m.orders / total >= 0.1)
+      .map((m) => ({
+        ...m,
+        typical: median(m.qtys),
+        inLast: m.idx === 0,
+        missed: m.idx, // сколько последних заказов подряд не брал
+        returned: retBy[normName(m.name)] || 0,
+      }))
+      .map((m) => ({
+        ...m,
+        popular: !m.returned && m.orders / total >= 0.4,
+        suggest:
+          !m.returned &&
+          m.idx > 0 &&
+          m.idx >= Math.max(1, Math.round(total / m.orders)),
+      }))
+      .sort((a, b) => b.orders - a.orders || b.typical - a.typical);
+    return { total, items };
+  }, [groups, stockOutMap, notFitMap, clientReturns]);
 
   return (
     <>
@@ -884,6 +996,82 @@ export default function ClientDetailPage({
             </tbody>
           </TableWrap>
         </>
+      )}
+
+      {usual && usual.items.length > 0 && (
+        <div style={{ marginTop: 22 }}>
+          <TableWrap
+            title="🛒 Что обычно берёт"
+            count={`по последним ${usual.total} заказам`}
+          >
+            <thead>
+              <tr style={{ background: "var(--s2)" }}>
+                {["Товар", "Берёт", "Обычно", "Последний раз", ""].map(
+                  (h, i) => (
+                    <TH key={i}>{h}</TH>
+                  ),
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {usual.items.map((m) => (
+                <TR
+                  key={m.name}
+                  bgColor={m.popular ? "rgba(212,160,23,0.14)" : undefined}
+                >
+                  <TD>
+                    <div
+                      style={{ display: "flex", alignItems: "center", gap: 10 }}
+                    >
+                      <ProductThumb
+                        src={imageByProduct[normName(m.name)]}
+                        size={32}
+                      />
+                      <b>{m.name}</b>
+                    </div>
+                  </TD>
+                  <TD style={{ color: "var(--muted)" }}>
+                    {m.orders} из {usual.total} заказов
+                  </TD>
+                  <TD>
+                    <span
+                      style={{
+                        fontFamily: "JetBrains Mono,monospace",
+                        fontSize: 12.5,
+                      }}
+                    >
+                      {m.typical} шт
+                    </span>
+                  </TD>
+                  <TD style={{ color: "var(--muted)" }}>
+                    {m.lastDate} · {m.lastQty} шт
+                  </TD>
+                  <TD>
+                    {m.returned > 0 ? (
+                      <span style={{ color: "var(--red)", fontSize: 12 }}>
+                        возвращал {m.returned} шт
+                      </span>
+                    ) : m.suggest ? (
+                      <span
+                        style={{
+                          color: "var(--accent)",
+                          fontWeight: 600,
+                          fontSize: 12,
+                        }}
+                      >
+                        предложить
+                      </span>
+                    ) : m.lastShort > 0 ? (
+                      <span style={{ color: "var(--red)", fontSize: 12 }}>
+                        недовезли {m.lastShort}
+                      </span>
+                    ) : null}
+                  </TD>
+                </TR>
+              ))}
+            </tbody>
+          </TableWrap>
+        </div>
       )}
 
       {/* =========================

@@ -905,6 +905,7 @@ export function ExpensesPage({ data, search }) {
           () =>
             updateExpense({
               id: editing.id,
+              date: editing.date,
               category: editing.category.trim(),
               amount,
               comment: editing.comment,
@@ -1115,12 +1116,13 @@ export function ExpensesPage({ data, search }) {
             <Field
               label="Дата"
               hint={
-                editing.id ? "Дата создания при правке не меняется" : undefined
+                editing.category === "Аванс"
+                  ? "Дата аванса определяет, в какой период (16–15) он попадёт"
+                  : undefined
               }
             >
               <DateField
                 value={editing.date}
-                disabled={!!editing.id}
                 onChange={(v) => setEditing({ ...editing, date: v })}
               />
             </Field>
